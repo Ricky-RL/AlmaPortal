@@ -12,4 +12,4 @@ This file inherits every instruction from the repository root `AGENTS.md`. More 
 
 ## Immutable repository workflow
 
-Root rules covering branch usage, frequent commits, push approval, pull request creation and review, CI completion, and squash workflow are inherited without modification. They cannot be weakened, bypassed, or reinterpreted by this file or any nested guidance. In particular, no push is permitted without the user's explicit approval in the same message.
+Root rules covering branch usage, frequent commits, push approval, pull request creation, CI completion, and squash workflow are inherited without modification. Reviews remain optional unless the user explicitly requests one for the current task. No push is permitted without the user's explicit approval in the same message.

@@ -18,9 +18,9 @@ class Settings(BaseModel):
     supabase_url: str
     supabase_service_role_key: SecretStr
     storage_bucket: str = "resumes"
-    sendgrid_api_key: SecretStr
-    sendgrid_base_url: str = "https://api.sendgrid.com"
-    sendgrid_from_email: str
+    resend_api_key: SecretStr
+    resend_base_url: str = "https://api.resend.com"
+    resend_from_email: str
     attorney_notification_email: str
     public_api_url: str
     supabase_jwt_issuer: str
@@ -32,7 +32,7 @@ class Settings(BaseModel):
     trusted_proxy_cidrs: tuple[str, ...] = ()
     trusted_client_ip_header: str | None = None
     overall_body_cap_bytes: int = 12 * 1024 * 1024
-    public_rate_limit: int = 5
+    public_rate_limit: int = 60
     public_rate_window_seconds: int = 15 * 60
     public_rate_limit_max_keys: int = 10_000
     provider_timeout_seconds: float = 5.0
@@ -43,7 +43,7 @@ class Settings(BaseModel):
         "supabase_url",
         "supabase_jwt_issuer",
         "supabase_jwks_url",
-        "sendgrid_base_url",
+        "resend_base_url",
         "public_api_url",
     )
     @classmethod
@@ -130,9 +130,9 @@ class Settings(BaseModel):
         if self.trusted_client_ip_header is not None and not self.trusted_proxy_cidrs:
             raise ValueError("TRUSTED_CLIENT_IP_HEADER requires documented TRUSTED_PROXY_CIDRS")
         validate_service_url(
-            self.sendgrid_base_url,
+            self.resend_base_url,
             environment=self.environment,
-            setting="SENDGRID_BASE_URL",
+            setting="RESEND_BASE_URL",
         )
         validate_service_url(
             self.public_api_url,
@@ -150,11 +150,8 @@ class Settings(BaseModel):
             raise ValueError("SUPABASE_JWT_ISSUER must be the auth child of SUPABASE_URL")
         if self.supabase_jwks_url != expected_jwks:
             raise ValueError("SUPABASE_JWKS_URL must be the JWKS child of SUPABASE_URL")
-        if (
-            self.environment == "production"
-            and self.sendgrid_base_url != "https://api.sendgrid.com"
-        ):
-            raise ValueError("production SENDGRID_BASE_URL must be https://api.sendgrid.com")
+        if self.environment == "production" and self.resend_base_url != "https://api.resend.com":
+            raise ValueError("production RESEND_BASE_URL must be https://api.resend.com")
         validate_database_tls(self.database_url.get_secret_value())
         local_hs256 = self.jwt_algorithms == ("HS256",)
         if local_hs256:
@@ -180,9 +177,9 @@ class Settings(BaseModel):
             supabase_url=supabase_url,
             supabase_service_role_key=required("SUPABASE_SERVICE_ROLE_KEY"),
             storage_bucket=os.getenv("SUPABASE_STORAGE_BUCKET", "resumes"),
-            sendgrid_api_key=required("SENDGRID_API_KEY"),
-            sendgrid_base_url=os.getenv("SENDGRID_BASE_URL", "https://api.sendgrid.com"),
-            sendgrid_from_email=required("SENDGRID_FROM_EMAIL"),
+            resend_api_key=required("RESEND_API_KEY"),
+            resend_base_url=os.getenv("RESEND_BASE_URL", "https://api.resend.com"),
+            resend_from_email=required("RESEND_FROM_EMAIL"),
             attorney_notification_email=required("ATTORNEY_NOTIFICATION_EMAIL"),
             public_api_url=required("PUBLIC_API_URL"),
             supabase_jwt_issuer=os.getenv("SUPABASE_JWT_ISSUER", f"{supabase_url}/auth/v1"),
@@ -196,7 +193,7 @@ class Settings(BaseModel):
             trusted_proxy_cidrs=csv("TRUSTED_PROXY_CIDRS", ()),
             trusted_client_ip_header=optional("TRUSTED_CLIENT_IP_HEADER"),
             overall_body_cap_bytes=int(os.getenv("OVERALL_BODY_CAP_BYTES", str(12 * 1024 * 1024))),
-            public_rate_limit=int(os.getenv("PUBLIC_RATE_LIMIT", "5")),
+            public_rate_limit=int(os.getenv("PUBLIC_RATE_LIMIT", "60")),
             public_rate_window_seconds=int(os.getenv("PUBLIC_RATE_WINDOW_SECONDS", "900")),
             public_rate_limit_max_keys=int(os.getenv("PUBLIC_RATE_LIMIT_MAX_KEYS", "10000")),
             provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "5")),

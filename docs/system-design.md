@@ -1,5 +1,10 @@
 # AlmaPortal system design
 
+This is the take-home design document: why the boundaries exist, which
+tradeoffs were accepted, and how the local and hosted paths are supposed to
+behave. For the short evaluator runbook see
+[local-setup.md](local-setup.md).
+
 ## 1. Scope
 
 AlmaPortal is a take-home system for synthetic lead intake and reviewer
@@ -39,7 +44,7 @@ flowchart LR
     Reviewer["Google-authenticated reviewer"] -->|"Review and update leads"| Portal
     Portal -->|"OAuth and JWT"| Google["Google and Supabase Auth"]
     Portal -->|"Rows and private objects"| Supabase["Supabase"]
-    Portal -->|"Transactional email"| SendGrid["SendGrid"]
+    Portal -->|"Transactional email"| Resend["Resend"]
     Operator["Repository operator"] -->|"Deploy one Git SHA"| Delivery["GitHub Actions"]
     Delivery --> Portal
 ```
@@ -66,7 +71,7 @@ flowchart TB
         Storage["Private resumes bucket"]
     end
 
-    Mail["SendGrid Mail Send API"]
+    Mail["Resend Email API"]
 
     Browser -->|"HTTPS"| Web
     Browser -->|"Public multipart submission"| API
@@ -94,7 +99,7 @@ long-lived client state.
 ### FastAPI on Render
 
 The API owns validation, authorization, domain transitions, database
-transactions, private Storage access, ticket signing, and SendGrid calls. One
+transactions, private Storage access, ticket signing, and Resend calls. One
 service keeps policy out of the browser and gives file streaming a clear trust
 boundary.
 
@@ -130,18 +135,18 @@ paid infrastructure solely for a take-home. Failed and unknown attempts are
 therefore retried manually. Unknown outcomes require the reviewer to confirm
 the risk of a duplicate before retrying.
 
-### SendGrid Single Sender
+### Resend Email API
 
-SendGrid Single Sender can send assessment mail after the account passes
-SendGrid qualification and the sender address is verified. Qualification is a
-separate gate from API-key creation. The trial can expire, and the provider's
-daily allowance can be exhausted or changed. AlmaPortal applies a lower
+Resend can send assessment mail after an API key exists. The test sender
+`onboarding@resend.dev` can reach only the Resend account owner. Arbitrary
+prospect and attorney inboxes require a verified domain. The provider's daily
+allowance can be exhausted or changed. AlmaPortal applies a lower
 database-backed daily budget as a cost and abuse guard.
 
-Production fixes `SENDGRID_BASE_URL` to `https://api.sendgrid.com`. Only local,
-isolated tests replace that origin with a SendGrid-compatible capture server.
+Production fixes `RESEND_BASE_URL` to `https://api.resend.com`. Only local,
+isolated tests replace that origin with a Resend-compatible capture server.
 
-`provider_accepted` means SendGrid accepted the API request. It is not evidence
+`provider_accepted` means Resend accepted the API request. It is not evidence
 that the recipient server accepted the message or that it reached an inbox.
 
 ## 5. Module boundaries
@@ -166,7 +171,7 @@ that the recipient server accepted the message or that it reached an inbox.
 - `documents.py` validates bounded PDF, DOC, and DOCX content.
 - HTTP modules translate requests, JWT principals, use-case results, and
   problem responses.
-- Adapter modules implement Postgres, Supabase Storage, SendGrid, JWT/JWKS, and
+- Adapter modules implement Postgres, Supabase Storage, Resend, JWT/JWKS, and
   signed-ticket ports.
 - `config.py` validates environment settings and refuses unsafe wildcard CORS
   or multi-worker configuration. It also requires the public API origin used
@@ -174,7 +179,7 @@ that the recipient server accepted the message or that it reached an inbox.
   production.
 
 Domain and application code do not import FastAPI, SQLAlchemy, Supabase, or
-SendGrid types. Adapters depend inward on ports. HTTP code invokes use cases
+Resend types. Adapters depend inward on ports. HTTP code invokes use cases
 instead of issuing provider calls directly.
 
 ### `infra/supabase`
@@ -186,7 +191,7 @@ and transactional claim and budget functions. Application startup never calls
 ### `tests`
 
 Unit tests cover domain and adapter behavior. Integration tests use local
-Supabase and a SendGrid stub. Hosted smoke tests are read-only and never submit
+Supabase and a Resend stub. Hosted smoke tests are read-only and never submit
 a lead or send mail.
 
 ## 6. Data model
@@ -261,7 +266,7 @@ Browser roles have no direct read policy.
 
 All JSON responses use UTF-8. Errors use a stable machine-readable `code` and a
 safe human message. Validation responses never include provider secrets,
-database text, object keys, or raw SendGrid bodies.
+database text, object keys, or raw Resend bodies.
 
 ### Public
 
@@ -370,7 +375,7 @@ sequenceDiagram
     participant API as FastAPI
     participant DB as Postgres
     participant Storage as Private Storage
-    participant Mail as SendGrid
+    participant Mail as Resend
 
     User->>Web: Enter synthetic lead and choose resume
     Web->>API: Multipart POST with acknowledgement
@@ -470,7 +475,7 @@ safe derived PDF while retaining the original only when policy allows.
 
 ## 13. Rate and capacity limits
 
-The public submission route allows five requests per source over a rolling
+The public submission route allows 60 requests per source over a rolling
 15-minute window by default. The source is the direct peer address unless the
 peer belongs to `TRUSTED_PROXY_CIDRS`, in which case a validated forwarded
 address may be used. This avoids accepting arbitrary spoofed forwarding
@@ -512,7 +517,7 @@ sequenceDiagram
     participant Reviewer
     participant API as FastAPI
     participant DB as Postgres
-    participant Mail as SendGrid
+    participant Mail as Resend
 
     Reviewer->>API: Manual retry request
     API->>DB: Lock delivery and reserve one retry credit
@@ -545,7 +550,7 @@ Claim rules:
 3. Reserve the retry budget and insert an append-only attempt in the same
    transaction.
 4. Put a unique token and five-minute lease on the delivery projection.
-5. Commit before calling SendGrid.
+5. Commit before calling Resend.
 6. Complete only when delivery ID, attempt ID, and claim token still match.
 7. Clear the active claim and record a sanitized terminal result.
 
@@ -558,7 +563,7 @@ response cannot erase that reconciliation.
 The token prevents a late completion from overwriting a newer attempt. Unique
 constraints prevent two initial claims or two identical attempt numbers.
 
-SendGrid success is represented as `provider_accepted`, not `delivered`.
+Resend success is represented as `provider_accepted`, not `delivered`.
 Definite validation or authorization rejection is failed. A timeout, connection
 reset after request transmission, or process death around the provider call is
 unknown because the provider may have accepted the message.
@@ -584,7 +589,7 @@ unknown because the provider may have accepted the message.
 - API timeouts are shorter than platform request timeouts. Retries are never
   hidden inside the HTTP client.
 
-The assessment accepts the remaining crash window between SendGrid acceptance
+The assessment accepts the remaining crash window between Resend acceptance
 and database completion. A production outbox plus provider idempotency support
 or deterministic reconciliation is needed to close it.
 
@@ -617,8 +622,8 @@ Production follow-up should add:
   provider latency, claim expiry, manual retry, and cold-start latency.
 - Alerts on unknown outcomes, capacity exhaustion, repeated provider failure,
   orphan detection, and version mismatch.
-- Distributed traces across Next.js, FastAPI, Postgres, Storage, and SendGrid.
-- Signed SendGrid event-webhook ingestion and delivery dashboards.
+- Distributed traces across Next.js, FastAPI, Postgres, Storage, and Resend.
+- Signed Resend event-webhook ingestion and delivery dashboards.
 
 ## 17. CI and deployment
 
@@ -671,7 +676,7 @@ the production release authority.
 
 Hosted configuration must use the exact HTTPS `SUPABASE_URL`,
 `SUPABASE_JWT_ISSUER`, and `SUPABASE_JWKS_URL` from the selected project.
-`SENDGRID_BASE_URL` remains `https://api.sendgrid.com`. `DATABASE_URL` must
+`RESEND_BASE_URL` remains `https://api.resend.com`. `DATABASE_URL` must
 connect as `alma_api` with PostgreSQL TLS required, such as `sslmode=require`,
 and must not disable certificate verification. Render's trusted proxy CIDRs and
 the `CF-Connecting-IP` normalization strategy described in the rate-limit
@@ -728,9 +733,9 @@ spend alerts are follow-ups.
   callbacks, ticket creation, downloads, and smoke checks.
 - No automatic email retry exists because free sleeping compute cannot run a
   dependable worker and paid queue workers are outside take-home scope.
-- SendGrid Single Sender is used instead of authenticated-domain mail.
-- SendGrid qualification, trial expiry, and provider daily limits can block
-  mail independently of application health.
+- Resend's test sender can only reach the account owner. Arbitrary recipients
+  need a verified domain.
+- Resend plan limits can block mail independently of application health.
 - `provider_accepted` is observable, but recipient delivery is not.
 - The public limiter is process-local and requires one worker.
 - Signed download tickets are short-lived but replayable until expiry.
@@ -746,12 +751,12 @@ FastAPI process. Its Edge Functions use a different runtime and would require a
 rewrite, while file streaming and the specified Python module remain on
 Render.
 
-### Use Resend sandbox for assessment mail
+### Keep SendGrid as the mail provider
 
-Rejected because Resend's sandbox cannot send to arbitrary reviewer recipients
-without a verified domain. That would block evaluator testing. SendGrid Single
-Sender can reach arbitrary recipients after sender verification and account
-qualification, though its own qualification gate remains.
+Rejected because Twilio account qualification and unified login blocked local
+sending. Resend accepts a send API key and `POST /emails` without that gate.
+The test sender `onboarding@resend.dev` still cannot reach arbitrary reviewer
+or prospect inboxes. A verified domain is required for that.
 
 ### Return Supabase signed resume URLs
 
@@ -809,7 +814,7 @@ JWTs, tickets, or provider secrets.
 - Add a staging environment with isolated data, OAuth, provider keys, and mail.
 - Move rate limiting to shared infrastructure.
 - Add a durable outbox, queue, always-on worker, and dead-letter operations.
-- Ingest verified SendGrid event webhooks and handle suppressions.
+- Ingest verified Resend event webhooks and handle suppressions.
 - Authenticate a sending domain with SPF, DKIM, and DMARC.
 - Add malware scanning, quarantine, and content disarm.
 - Add one-time persisted download tickets and download audit records.

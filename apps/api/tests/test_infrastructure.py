@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -8,7 +9,7 @@ import pytest
 
 from alma_api.application import DownloadGrant
 from alma_api.domain import DeliveryState, MailMessage, NormalizedEmail
-from alma_api.infrastructure import HmacTicketSigner, SendGridMailer, TicketError
+from alma_api.infrastructure import HmacTicketSigner, ResendMailer, TicketError
 
 NOW = datetime(2026, 2, 3, 10, tzinfo=UTC)
 
@@ -26,13 +27,13 @@ def message() -> MailMessage:
 @pytest.mark.parametrize(
     ("status", "expected_state", "error"),
     [
-        (202, DeliveryState.PROVIDER_ACCEPTED, None),
-        (429, DeliveryState.FAILED, "sendgrid_retryable_429"),
-        (500, DeliveryState.FAILED, "sendgrid_retryable_500"),
-        (400, DeliveryState.FAILED, "sendgrid_rejected_400"),
+        (200, DeliveryState.PROVIDER_ACCEPTED, None),
+        (429, DeliveryState.FAILED, "resend_retryable_429"),
+        (500, DeliveryState.FAILED, "resend_retryable_500"),
+        (400, DeliveryState.FAILED, "resend_rejected_400"),
     ],
 )
-async def test_sendgrid_response_classification(
+async def test_resend_response_classification(
     status: int,
     expected_state: DeliveryState,
     error: str | None,
@@ -41,10 +42,12 @@ async def test_sendgrid_response_classification(
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
-        return httpx.Response(status, headers={"x-message-id": "provider-id"})
+        if status == 200:
+            return httpx.Response(status, json={"id": "provider-id"})
+        return httpx.Response(status)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await SendGridMailer(
+        result = await ResendMailer(
             api_key="secret",
             base_url="http://127.0.0.1:4010",
             from_email="sender@example.com",
@@ -52,22 +55,43 @@ async def test_sendgrid_response_classification(
         ).send(message())
     assert result.state is expected_state
     assert result.sanitized_error == error
-    assert captured[0].url == "http://127.0.0.1:4010/v3/mail/send"
-    body = captured[0].read().decode()
-    assert "text/plain" in body
-    assert "text/html" in body
+    if expected_state is DeliveryState.PROVIDER_ACCEPTED:
+        assert result.provider_message_id == "provider-id"
+    assert captured[0].url == "http://127.0.0.1:4010/emails"
+    body = json.loads(captured[0].read().decode())
+    assert body["from"] == "sender@example.com"
+    assert body["to"] == ["recipient@example.net"]
+    assert body["text"] == "plain"
+    assert body["html"] == "<p>html</p>"
     assert "attachment" not in body
+    assert "attachments" not in body
 
 
 @pytest.mark.asyncio
-async def test_sendgrid_connection_ambiguity_is_unknown() -> None:
+async def test_resend_accepted_without_id_uses_fallback_provider_id() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": ""})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await ResendMailer(
+            api_key="secret",
+            base_url="http://127.0.0.1:4010",
+            from_email="sender@example.com",
+            client=client,
+        ).send(message())
+    assert result.state is DeliveryState.PROVIDER_ACCEPTED
+    assert result.provider_message_id == "resend-accepted-without-id"
+
+
+@pytest.mark.asyncio
+async def test_resend_connection_ambiguity_is_unknown() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("response may have been accepted", request=request)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        result = await SendGridMailer(
+        result = await ResendMailer(
             api_key="secret",
-            base_url="https://api.sendgrid.com",
+            base_url="https://api.resend.com",
             from_email="sender@example.com",
             client=client,
         ).send(message())

@@ -1,12 +1,12 @@
 # AlmaPortal browser tests
 
-This is the Playwright workspace package for AlmaPortal. It assumes the web app, API, local Supabase stack, and storage bucket are already running. Locally it starts a SendGrid-compatible capture server by default. CI starts that server separately and sets `E2E_START_SENDGRID_STUB=false`.
+This is the Playwright workspace package for AlmaPortal. It assumes the web app, API, local Supabase stack, and storage bucket are already running. Locally it starts a Resend-compatible capture server by default. CI starts that server separately and sets `E2E_START_RESEND_STUB=false`.
 
 ## Run locally
 
 1. Install from the repository root with `pnpm install`. The root `pnpm-lock.yaml` is the only workspace lockfile.
 2. Start and reset local Supabase, then run `make db-runtime-credentials`. Source `.env.runtime` so the E2E process receives the local anon and service-role keys.
-3. Copy `.env.example` to `.env` for E2E-specific values. Start the API with `SENDGRID_BASE_URL=http://127.0.0.1:4319`, then start the web app.
+3. Copy `.env.example` to `.env` for E2E-specific values. Start the API with `RESEND_BASE_URL=http://127.0.0.1:4319`, then start the web app.
 4. From this directory run:
 
    ```sh
@@ -48,4 +48,4 @@ The page objects prefer accessible roles and labels. The expected UI contract is
 - a lead link or clickable row containing its synthetic name or email
 - accessible controls for next-page navigation, CV download, marking reached out, notification retry, and retry confirmation
 
-The SendGrid stub accepts `POST /v3/mail/send`, always returns `202`, and captures requests in memory. Before any test runs, setup verifies that `SENDGRID_BASE_URL` exactly matches the loopback stub origin and resets captured messages. This configuration check prevents repeated tests from contacting real email delivery without adding an application bypass.
+The Resend stub accepts `POST /emails`, always returns `200` with an `id`, and captures requests in memory. Before any test runs, setup verifies that `RESEND_BASE_URL` exactly matches the loopback stub origin and resets captured messages. This configuration check prevents repeated tests from contacting real email delivery without adding an application bypass.

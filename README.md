@@ -7,12 +7,22 @@ manually retry an email whose outcome is failed or unknown.
 
 ## Assignment outcome
 
+Public repository: [https://github.com/Ricky-RL/AlmaPortal](https://github.com/Ricky-RL/AlmaPortal)
+
+Submission packet:
+
+- Local run: [docs/local-setup.md](docs/local-setup.md)
+- Design: [docs/system-design.md](docs/system-design.md)
+- Coding-agent usage and prompt excerpts: [docs/agent-usage.md](docs/agent-usage.md)
+- Agent vs hand-written attribution: [NOTES.md](NOTES.md)
+- Checklist and recording script: [docs/SUBMISSION.md](docs/SUBMISSION.md)
+
 The repository contains:
 
 - A Next.js application for public lead submission and the authenticated
   reviewer workflow.
 - A Python 3.12 FastAPI service with domain rules, authorization, upload
-  validation, private file streaming, and SendGrid delivery tracking.
+  validation, private file streaming, and Resend delivery tracking.
 - Supabase migrations for Postgres, row-level security, private Storage,
   transactional delivery claims, and email budget controls. Google
   authentication is configured in Supabase, while FastAPI owns rate limits and
@@ -47,7 +57,7 @@ Browser
        -> Render / FastAPI
             -> Supabase Postgres
             -> private Supabase Storage
-            -> SendGrid
+            -> Resend
 ```
 
 The browser submits public lead data to FastAPI. Reviewer operations go through
@@ -58,7 +68,7 @@ Short-lived signed download tickets authorize API-streamed downloads, so
 the browser never receives a reusable private object URL.
 
 Each lead owns two independent deliveries: a confirmation to the prospect and
-a notification to the configured attorney. A SendGrid HTTP acceptance is
+a notification to the configured attorney. A Resend HTTP acceptance is
 recorded as `provider_accepted`. It does not prove recipient delivery.
 
 See [docs/system-design.md](docs/system-design.md) for the full design.
@@ -109,7 +119,11 @@ infra/supabase/
   migrations/             Database, RLS, Storage, and transactional functions
 tests/                    Repository-level and hosted smoke tests
 docs/
+  SUBMISSION.md           Assignment checklist and recording script
+  local-setup.md          How to run the stack on loopback
   system-design.md        Architecture and operating decisions
+  agent-usage.md          Coding-agent writeup and prompt excerpts
+NOTES.md                  Agent-generated vs hand-written attribution
 .github/workflows/
   ci.yml                  Pull request and main CI
   deploy.yml              Ordered production deployment
@@ -131,7 +145,8 @@ and uploaded resumes must remain untracked.
 - [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)
 - Docker Desktop or another Docker-compatible runtime for local Supabase
 - A Google Cloud project for reviewer OAuth
-- A qualified SendGrid account with a verified Single Sender
+- A Resend account. `onboarding@resend.dev` can send to the account owner.
+  Arbitrary recipients need a verified domain.
 
 Render, Vercel, and hosted Supabase accounts are only needed for deployment.
 
@@ -174,16 +189,17 @@ cp .env.example .env
 cp apps/web/.env.example apps/web/.env.local
 ```
 
+The short evaluator path is [docs/local-setup.md](docs/local-setup.md).
 Populate the local files from `supabase status` and the provider dashboards.
 Keep these distinctions:
 
 - Browser-visible values may include only `NEXT_PUBLIC_API_URL`,
   `NEXT_PUBLIC_SUPABASE_URL`, and the Supabase anon key.
 - `API_URL`, `APP_URL`, and `CSRF_SECRET` are server-only Next.js values.
-- Database credentials, the Supabase service-role key, SendGrid key, attorney
+- Database credentials, the Supabase service-role key, Resend key, attorney
   recipient, sender identity, and ticket-signing secret belong only in FastAPI
   or provider secret stores.
-- Never expose a service-role key or SendGrid key through a `NEXT_PUBLIC_*`
+- Never expose a service-role key or Resend key through a `NEXT_PUBLIC_*`
   variable.
 
 Start the local Supabase stack and apply all migrations:
@@ -199,10 +215,10 @@ make db-runtime-credentials
 `ALMA_API_PASSWORD` is supplied, and writes mode-0600 credentials to the
 ignored `.env.runtime` file.
 
-Then start the applications in separate terminals:
+Then start the applications in separate terminals. `make dev-api` and
+`make dev-web` load `.env` then `.env.runtime` themselves:
 
 ```bash
-set -a; . ./.env; . ./.env.runtime; set +a
 make dev-api
 
 # In another terminal:
@@ -406,35 +422,34 @@ local JWT secret from `supabase status`. That verifier is accepted only with a
 loopback Supabase URL outside production. Hosted Supabase must use its exact
 HTTPS issuer and JWKS URLs with an explicit asymmetric algorithm allowlist.
 
-## SendGrid setup and qualification
+## Resend setup
 
-1. Create the SendGrid account and complete its account qualification process.
-   Qualification is a real gate. Until SendGrid approves the account, API keys
-   and a verified sender may still be unable to send.
-2. In Sender Authentication, create a Single Sender and confirm the verification
-   email for the exact `From` address.
-3. Create a restricted API key with only Mail Send permission.
-4. Configure the API key, verified sender, sender name, and attorney recipient
-   as Render secrets.
+1. Create a Resend account and copy an API key with send permission.
+2. For mail to your own inbox only, set `RESEND_FROM_EMAIL` to
+   `onboarding@resend.dev`. That test sender cannot reach arbitrary addresses.
+3. To notify other inboxes, add and verify a domain, then set
+   `RESEND_FROM_EMAIL` to an address on that domain.
+4. Configure the API key, From address, and attorney recipient as Render
+   secrets. Production `RESEND_BASE_URL` stays `https://api.resend.com`.
 5. Review the Postgres-owned 80-credit new-lead pool and 20-credit retry pool
-   against the current SendGrid plan limit.
+   against the current Resend plan limit.
 6. Run
    `EMAIL_SMOKE_RECIPIENT=<authorized-unrelated-address> make email-smoke` once,
-   then inspect the SendGrid Activity Feed.
+   then inspect the Resend emails dashboard.
 
-The SendGrid trial can expire, and its daily allowance can change or be
-exhausted. The application budget is a lower, atomic safety cap. Both the
-provider allowance and the application budget must permit a send.
+If you are still on the test sender, the smoke recipient and any submitted
+lead email must be the Resend account address. A `200` response with an `id`
+means Resend accepted the request. It does not mean the recipient inbox
+accepted or displayed the message. Production needs event webhooks for
+delivered, bounced, complained, and failed outcomes.
 
-A `202 Accepted` response means SendGrid accepted the request. It does not mean
-the recipient inbox accepted or displayed the message. Production needs event
-webhooks for delivered, deferred, bounce, dropped, and spam-report outcomes.
+The provider allowance and the application budget must both permit a send.
 
 ## Production deployment
 
 Provision providers in this order:
 
-1. Create and configure hosted Supabase, Google OAuth, and SendGrid.
+1. Create and configure hosted Supabase, Google OAuth, and Resend.
 2. Create the Render service from `render.yaml`, connect the repository, and
    keep automatic deploys disabled so GitHub Actions controls ordering.
 3. Create a Vercel project with `apps/web` as its project root and configure its
@@ -481,11 +496,11 @@ manually after the reviewer sees the state and confirms duplicate-send risk.
 
 Vercel must hold the web environment values, including the deployed API origin,
 Supabase URL, anon key, app origin, and a strong CSRF secret. Render must hold
-the database, Supabase, Storage, SendGrid, recipient, CORS, rate-limit, and
+the database, Supabase, Storage, Resend, recipient, CORS, rate-limit, and
 upload-limit settings declared by `render.yaml` and the API environment
 example. Set Render's required `PUBLIC_API_URL` to its exact public HTTPS
-origin. Production `SENDGRID_BASE_URL` remains
-`https://api.sendgrid.com`; only isolated local tests point it at a stub.
+origin. Production `RESEND_BASE_URL` remains
+`https://api.resend.com`; only isolated local tests point it at a stub.
 Set `SUPABASE_URL`, `SUPABASE_JWT_ISSUER`, and `SUPABASE_JWKS_URL` to the exact
 hosted HTTPS values. Use a direct `alma_api` Postgres connection that requires
 TLS, such as `sslmode=require`, and verify the hosted CA policy rather than
@@ -504,9 +519,9 @@ operational prerequisite, not a completed control.
 
 - Hosted reviewer access accepts any Google account. Add server-side domain or
   allowlist authorization before storing real data.
-- SendGrid Single Sender is suitable for assessment mail. Authenticate a domain
-  with SPF, DKIM, and DMARC for production.
-- Provider acceptance is not final delivery. Add signed SendGrid event
+- Resend's `onboarding@resend.dev` sender can reach the account owner. Verify a
+  domain with SPF, DKIM, and DMARC before sending to arbitrary inboxes.
+- Provider acceptance is not final delivery. Add signed Resend event
   webhooks, suppression handling, and delivery reconciliation.
 - Free Render cold starts can delay submissions and downloads. Use always-on
   compute plus a queue and worker before introducing automatic retries.
@@ -516,5 +531,5 @@ operational prerequisite, not a completed control.
   hold policies before real PII.
 - Add centralized metrics, alerting, traces, a dead-letter workflow, and
   provider runbooks.
-- Add staging with separate Supabase, SendGrid, Render, Vercel, OAuth, and
+- Add staging with separate Supabase, Resend, Render, Vercel, OAuth, and
   secrets. Never test destructive migrations or real mail against production.

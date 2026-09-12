@@ -339,7 +339,7 @@ async def test_stale_completion_is_reported_without_projection_success() -> None
         MailResult(
             DeliveryState.FAILED,
             http_status=500,
-            sanitized_error="sendgrid_retryable_500",
+            sanitized_error="resend_retryable_500",
         ),
     )
 

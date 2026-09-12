@@ -28,14 +28,14 @@ services:
         value: copy
       - key: SUPABASE_STORAGE_BUCKET
         value: resumes
-      - key: SENDGRID_BASE_URL
-        value: https://api.sendgrid.com
+      - key: RESEND_BASE_URL
+        value: https://api.resend.com
       - key: JWT_ALGORITHMS
         value: RS256,ES256
       - key: OVERALL_BODY_CAP_BYTES
         value: "12582912"
       - key: PUBLIC_RATE_LIMIT
-        value: "5"
+        value: "60"
       - key: PUBLIC_RATE_WINDOW_SECONDS
         value: "900"
       - key: PROVIDER_TIMEOUT_SECONDS
@@ -55,9 +55,9 @@ services:
         sync: false
       - key: PUBLIC_API_URL
         sync: false
-      - key: SENDGRID_API_KEY
+      - key: RESEND_API_KEY
         sync: false
-      - key: SENDGRID_FROM_EMAIL
+      - key: RESEND_FROM_EMAIL
         sync: false
       - key: ATTORNEY_NOTIFICATION_EMAIL
         sync: false

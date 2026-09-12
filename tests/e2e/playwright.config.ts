@@ -4,11 +4,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { contract } from "./helpers/contract.js";
 
-const sendgridWebServer = contract.sendgrid.startStub
+const resendWebServer = contract.resend.startStub
   ? [
       {
-        command: "pnpm sendgrid:stub",
-        url: `${contract.sendgrid.origin}/__health`,
+        command: "pnpm resend:stub",
+        url: `${contract.resend.origin}/__health`,
         reuseExistingServer: !process.env.CI,
         timeout: 15_000,
       },
@@ -38,7 +38,7 @@ export default defineConfig({
     actionTimeout: 10_000,
     navigationTimeout: 20_000,
   },
-  ...(sendgridWebServer ? { webServer: sendgridWebServer } : {}),
+  ...(resendWebServer ? { webServer: resendWebServer } : {}),
   projects: [
     {
       name: "desktop-chromium",

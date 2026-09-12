@@ -154,11 +154,11 @@ test.describe("authenticated lead dashboard", () => {
     admin,
     dashboard,
     data,
-    sendgrid,
+    resend,
   }) => {
     const prospect = data.prospect("unknown notification");
     await admin.seedRetryableUnknownLead(prospect);
-    await sendgrid.reset();
+    await resend.reset();
 
     await dashboard.open();
     await dashboard.openLead(prospect);
@@ -176,7 +176,7 @@ test.describe("authenticated lead dashboard", () => {
       .toBe(true);
 
     await expect
-      .poll(async () => (await sendgrid.messages()).length)
+      .poll(async () => (await resend.messages()).length)
       .toBeGreaterThan(0);
   });
 });

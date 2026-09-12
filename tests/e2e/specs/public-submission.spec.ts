@@ -6,7 +6,7 @@ test.describe("public prospect submission", () => {
   test("submits a synthetic prospect and shows success", async ({
     data,
     publicForm,
-    sendgrid,
+    resend,
   }) => {
     const prospect = data.prospect("public success");
 
@@ -26,7 +26,7 @@ test.describe("public prospect submission", () => {
       .toBe(true);
 
     await expect
-      .poll(async () => (await sendgrid.messages()).length)
+      .poll(async () => (await resend.messages()).length)
       .toBeGreaterThan(0);
   });
 

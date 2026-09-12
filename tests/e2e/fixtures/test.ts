@@ -6,7 +6,7 @@ import {
 
 import { AlmaApiClient } from "../helpers/alma-api.js";
 import { LocalSupabaseAdmin } from "../helpers/supabase-admin.js";
-import { SendgridStub } from "../helpers/sendgrid-stub.js";
+import { ResendStub } from "../helpers/resend-stub.js";
 import { DashboardPage } from "../pages/dashboard.page.js";
 import { PublicFormPage } from "../pages/public-form.page.js";
 import { SyntheticData } from "./synthetic-data.js";
@@ -15,7 +15,7 @@ type AlmaFixtures = {
   admin: LocalSupabaseAdmin;
   api: AlmaApiClient;
   data: SyntheticData;
-  sendgrid: SendgridStub;
+  resend: ResendStub;
   publicForm: PublicFormPage;
   authenticatedPage: Page;
   dashboard: DashboardPage;
@@ -32,10 +32,10 @@ export const test = base.extend<AlmaFixtures>({
     const data = new SyntheticData(testInfo);
     await use(data);
   },
-  sendgrid: async ({}, use) => {
-    const sendgrid = new SendgridStub();
-    await sendgrid.reset();
-    await use(sendgrid);
+  resend: async ({}, use) => {
+    const resend = new ResendStub();
+    await resend.reset();
+    await use(resend);
   },
   publicForm: async ({ page }, use) => {
     await use(new PublicFormPage(page));

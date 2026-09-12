@@ -16,7 +16,7 @@ Runtime configuration is supplied through environment variables:
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`
 - `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL`, `JWT_ALGORITHMS`
 - `SUPABASE_JWT_SECRET` only for local Supabase CLI HS256 tokens
-- `SENDGRID_API_KEY`, `SENDGRID_BASE_URL`, `SENDGRID_FROM_EMAIL`
+- `RESEND_API_KEY`, `RESEND_BASE_URL`, `RESEND_FROM_EMAIL`
 - `ATTORNEY_NOTIFICATION_EMAIL`, `PUBLIC_API_URL`
 - `TICKET_SIGNING_SECRET`, at least 32 bytes
 - `CORS_ORIGINS`, comma-separated explicit origins
@@ -36,8 +36,8 @@ It never calls JWKS, but applies the same issuer, audience, expiry, role,
 non-anonymous, email, and signed Google provider checks as asymmetric tokens.
 
 In production, `SUPABASE_URL` must be a credential-free HTTPS origin. The
-issuer and JWKS URL must be its exact Auth children, and SendGrid must use
-`https://api.sendgrid.com`. Remote PostgreSQL URLs must set `sslmode` to
+issuer and JWKS URL must be its exact Auth children, and Resend must use
+`https://api.resend.com`. Remote PostgreSQL URLs must set `sslmode` to
 `require`, `verify-ca`, or `verify-full`.
 
 By default, rate limiting uses the socket peer and ignores
@@ -70,7 +70,7 @@ TEST_DATABASE_URL=postgresql://... \
 .venv/bin/pytest -m integration
 ```
 
-The SendGrid smoke command requires an explicitly supplied, unrelated,
+The Resend smoke command requires an explicitly supplied, unrelated,
 authorized recipient:
 
 ```bash

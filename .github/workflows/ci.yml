@@ -30,16 +30,15 @@ env:
   GOOGLE_CLIENT_ID: ci-google-client-id.invalid
   GOOGLE_CLIENT_SECRET: ci-google-client-secret-placeholder
   GOOGLE_REDIRECT_URI: http://127.0.0.1:54321/auth/v1/callback
-  SENDGRID_API_KEY: ci-sendgrid-placeholder
-  SENDGRID_BASE_URL: http://127.0.0.1:4319
-  SENDGRID_FROM_EMAIL: no-reply@example.invalid
+  RESEND_API_KEY: ci-resend-placeholder
+  RESEND_BASE_URL: http://127.0.0.1:4319
+  RESEND_FROM_EMAIL: no-reply@example.invalid
   ATTORNEY_NOTIFICATION_EMAIL: attorney@example.invalid
-  SENDGRID_TRIAL_EXPIRES_AT: "2099-01-01T00:00:00Z"
   TICKET_SIGNING_SECRET: ci-only-download-ticket-secret-0000000000000000
   CORS_ORIGINS: http://127.0.0.1:3000
   JWT_ALGORITHMS: HS256
   OVERALL_BODY_CAP_BYTES: "12582912"
-  PUBLIC_RATE_LIMIT: "5"
+  PUBLIC_RATE_LIMIT: "60"
   PUBLIC_RATE_WINDOW_SECONDS: "900"
   WEB_CONCURRENCY: "1"
   COMMIT_SHA: ${{ github.sha }}

@@ -218,7 +218,7 @@ class SupabaseStorage:
             offset += page_size
 
 
-class SendGridMailer:
+class ResendMailer:
     def __init__(
         self,
         *,
@@ -235,19 +235,17 @@ class SendGridMailer:
     async def send(self, message: MailMessage) -> MailResult:
         try:
             response = await self._client.post(
-                f"{self._base_url}/v3/mail/send",
+                f"{self._base_url}/emails",
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "from": {"email": self._from_email},
-                    "personalizations": [{"to": [{"email": message.recipient.value}]}],
+                    "from": self._from_email,
+                    "to": [message.recipient.value],
                     "subject": message.subject,
-                    "content": [
-                        {"type": "text/plain", "value": message.plain_body},
-                        {"type": "text/html", "value": message.html_body},
-                    ],
+                    "text": message.plain_body,
+                    "html": message.html_body,
                 },
             )
         except httpx.RequestError as exc:
@@ -256,25 +254,36 @@ class SendGridMailer:
                 http_status=None,
                 sanitized_error=f"connection_ambiguous:{type(exc).__name__}",
             )
-        if response.status_code == 202:
+        if response.status_code == 200:
             return MailResult(
                 state=DeliveryState.PROVIDER_ACCEPTED,
                 http_status=response.status_code,
-                provider_message_id=(
-                    response.headers.get("x-message-id") or "sendgrid-accepted-without-id"
-                ),
+                provider_message_id=_resend_message_id(response),
             )
         if response.status_code == 429 or response.status_code >= 500:
             return MailResult(
                 state=DeliveryState.FAILED,
                 http_status=response.status_code,
-                sanitized_error=f"sendgrid_retryable_{response.status_code}",
+                sanitized_error=f"resend_retryable_{response.status_code}",
             )
         return MailResult(
             state=DeliveryState.FAILED,
             http_status=response.status_code,
-            sanitized_error=f"sendgrid_rejected_{response.status_code}",
+            sanitized_error=f"resend_rejected_{response.status_code}",
         )
+
+
+def _resend_message_id(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return "resend-accepted-without-id"
+    if not isinstance(payload, dict):
+        return "resend-accepted-without-id"
+    raw_id = payload.get("id")
+    if isinstance(raw_id, str) and raw_id.strip():
+        return raw_id.strip()
+    return "resend-accepted-without-id"
 
 
 class RateLimitExceeded(ApplicationError):

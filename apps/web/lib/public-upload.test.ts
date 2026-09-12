@@ -92,6 +92,9 @@ describe("public multipart upload", () => {
   it("maps every required public response status", () => {
     expect(uploadErrorMessage(413)).toMatch(/10 MiB/);
     expect(uploadErrorMessage(422)).toMatch(/validate/);
+    expect(uploadErrorMessage(422, "unsupported_resume_format")).toMatch(
+      /valid PDF, DOC, or DOCX/i,
+    );
     expect(uploadErrorMessage(429)).toMatch(/too many submissions/i);
     expect(uploadErrorMessage(503)).toMatch(/temporarily unavailable/i);
     expect(uploadErrorMessage(429, "budget_exceeded")).toMatch(/capacity/i);

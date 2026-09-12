@@ -7,7 +7,7 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "browsers:install": "playwright install chromium",
-    "sendgrid:stub": "node helpers/sendgrid-stub-server.mjs",
+    "resend:stub": "node helpers/resend-stub-server.mjs",
     "test": "playwright test",
     "test:desktop": "playwright test --project=desktop-chromium",
     "test:mobile": "playwright test --project=mobile-chromium",

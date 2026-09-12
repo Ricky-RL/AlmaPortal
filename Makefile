@@ -51,9 +51,15 @@ setup:
 	$(UV) sync --all-packages --all-extras
 
 dev-web:
+	@set -eu; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -f "$(RUNTIME_ENV)" ]; then set -a; . ./$(RUNTIME_ENV); set +a; fi; \
 	$(PNPM) --dir $(WEB_DIR) dev
 
 dev-api:
+	@set -eu; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -f "$(RUNTIME_ENV)" ]; then set -a; . ./$(RUNTIME_ENV); set +a; fi; \
 	cd $(API_DIR) && $(UV) run alma-api
 
 lint:
@@ -137,7 +143,10 @@ email-smoke:
 		printf 'Set EMAIL_SMOKE_RECIPIENT to an authorized unrelated address.\n' >&2; \
 		exit 2; \
 	}
-	@cd $(API_DIR) && $(UV) run email-smoke \
+	@set -eu; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	if [ -f "$(RUNTIME_ENV)" ]; then set -a; . ./$(RUNTIME_ENV); set +a; fi; \
+	cd $(API_DIR) && $(UV) run email-smoke \
 		--to "$$EMAIL_SMOKE_RECIPIENT" \
 		--confirm-unrelated-recipient
 

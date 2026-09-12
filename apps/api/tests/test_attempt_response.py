@@ -55,7 +55,7 @@ def test_protected_detail_nests_tolerant_attempt_history_shape() -> None:
         retry_count=0,
         last_attempt_at=NOW + timedelta(seconds=1),
         provider_message_id=None,
-        last_error="sendgrid_rejected_400",
+        last_error="resend_rejected_400",
         created_at=NOW,
         updated_at=NOW + timedelta(seconds=1),
     )
@@ -70,7 +70,7 @@ def test_protected_detail_nests_tolerant_attempt_history_shape() -> None:
         http_status=400,
         outcome=DeliveryState.FAILED,
         provider_message_id=None,
-        sanitized_error="sendgrid_rejected_400",
+        sanitized_error="resend_rejected_400",
     )
     payload = LeadResponse.from_domain(lead, (delivery,), (attempt,)).model_dump(mode="json")
     projected = payload["deliveries"][0]

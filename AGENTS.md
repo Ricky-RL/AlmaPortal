@@ -10,7 +10,10 @@ The repository is a pnpm and uv monorepo:
 - `apps/api`: Python 3.12 API. It owns secret-bearing operations, email delivery, protected download tickets, and other server-side integrations.
 - `infra/supabase`: local Supabase configuration, migrations, policies, storage setup, and database tests.
 - `tests/e2e`: Playwright journeys across the web, API, and local Supabase stack.
-- `docs`: product, architecture, operations, and decision records.
+- `docs`: product, architecture, operations, decision records, and the
+  take-home submission packet (`local-setup.md`, `system-design.md`,
+  `agent-usage.md`, `SUBMISSION.md`). Root `NOTES.md` marks agent-generated
+  versus hand-written work.
 
 Use the root `Makefile` as the stable command interface. Keep implementation-specific commands inside their owning module when possible.
 
@@ -23,16 +26,15 @@ These rules apply to people and agents:
 3. Run affected checks before each commit and the full suite before handoff.
 4. Never push unless the current user message explicitly says `push`.
 5. After approval, open a pull request that follows the repository template.
-6. Run an independent review of the complete branch changes.
-7. Address valid findings in new commits. Do not rewrite reviewed history to hide fixes.
-8. Require review approval and green CI. Squash merge only after both are satisfied.
+6. Code reviews are optional. Do not spawn review agents or block delivery on reviewer approval unless the user explicitly requests a review for the current task.
+7. Require green CI before squash merging.
 
 Child `AGENTS.md` files inherit every rule here. They may add stricter module guidance, but they cannot weaken or override this governance or the security rules below.
 
 ## Security and data handling
 
 - Real secrets and personally identifiable information must never enter git, fixtures, screenshots, logs, or CI output.
-- Browser code must never receive Supabase secret keys, database credentials, SendGrid keys, deployment tokens, or download-ticket signing secrets.
+- Browser code must never receive Supabase secret keys, database credentials, Resend keys, deployment tokens, or download-ticket signing secrets.
 - Keep privileged access in `apps/api`. Enforce authorization again in PostgreSQL policies.
 - Use `.env.example` only as a name and shape reference. Use local, ignored environment files for actual values.
 - Use synthetic data for development, tests, demos, and bug reports.

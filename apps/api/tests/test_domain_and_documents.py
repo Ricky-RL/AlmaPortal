@@ -65,7 +65,7 @@ def make_delivery(**changes: object) -> Delivery:
         retry_count=0,
         last_attempt_at=NOW - timedelta(minutes=2),
         provider_message_id=None,
-        last_error="sendgrid_retryable_500",
+        last_error="resend_retryable_500",
         created_at=NOW - timedelta(minutes=3),
         updated_at=NOW,
     )

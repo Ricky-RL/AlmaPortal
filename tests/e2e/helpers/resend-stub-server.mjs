@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 
 const origin = new URL(
-  process.env.E2E_SENDGRID_STUB_ORIGIN ?? "http://127.0.0.1:4319",
+  process.env.E2E_RESEND_STUB_ORIGIN ?? "http://127.0.0.1:4319",
 );
 const messages = [];
 
@@ -33,7 +33,7 @@ const server = createServer((request, response) => {
     return;
   }
 
-  if (request.method === "POST" && request.url?.endsWith("/v3/mail/send")) {
+  if (request.method === "POST" && request.url === "/emails") {
     const chunks = [];
     let size = 0;
     request.on("data", (chunk) => {
@@ -42,27 +42,23 @@ const server = createServer((request, response) => {
     });
     request.on("end", () => {
       if (size > 1_000_000) {
-        json(response, 413, { error: "synthetic SendGrid request too large" });
+        json(response, 413, { error: "synthetic Resend request too large" });
         return;
       }
       messages.push({
         body: Buffer.concat(chunks).toString("utf8"),
         receivedAt: new Date().toISOString(),
       });
-      response.writeHead(202, {
-        "access-control-allow-origin": "*",
-        "x-message-id": `alma-e2e-${messages.length}`,
-      });
-      response.end();
+      json(response, 200, { id: `alma-e2e-${messages.length}` });
     });
     return;
   }
 
-  json(response, 404, { error: "unknown SendGrid stub route" });
+  json(response, 404, { error: "unknown Resend stub route" });
 });
 
 server.listen(Number(origin.port || 80), origin.hostname, () => {
-  process.stdout.write(`SendGrid stub listening on ${origin.origin}\n`);
+  process.stdout.write(`Resend stub listening on ${origin.origin}\n`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

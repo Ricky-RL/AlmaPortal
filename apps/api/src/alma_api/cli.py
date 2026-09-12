@@ -10,12 +10,12 @@ import httpx
 
 from alma_api.config import required, validate_service_url
 from alma_api.domain import DeliveryState, MailMessage, MailResult, NormalizedEmail
-from alma_api.infrastructure import SendGridMailer
+from alma_api.infrastructure import ResendMailer
 
 
 def email_smoke() -> None:
     parser = argparse.ArgumentParser(
-        description="Send one SendGrid smoke message without persisting its recipient."
+        description="Send one Resend smoke message without persisting its recipient."
     )
     parser.add_argument("--to", required=True, help="Explicit unrelated test recipient")
     parser.add_argument(
@@ -27,28 +27,28 @@ def email_smoke() -> None:
     if not arguments.confirm_unrelated_recipient:
         parser.error("--confirm-unrelated-recipient is required")
     recipient = NormalizedEmail.parse(arguments.to)
-    sender = NormalizedEmail.parse(required("SENDGRID_FROM_EMAIL"))
+    sender = NormalizedEmail.parse(required("RESEND_FROM_EMAIL"))
     attorney = os.getenv("ATTORNEY_NOTIFICATION_EMAIL")
     forbidden = {sender.value}
     if attorney:
         forbidden.add(NormalizedEmail.parse(attorney).value)
     if recipient.value in forbidden:
         parser.error("--to must be an unrelated recipient, not a configured application address")
-    base_url = os.getenv("SENDGRID_BASE_URL", "https://api.sendgrid.com").rstrip("/")
+    base_url = os.getenv("RESEND_BASE_URL", "https://api.resend.com").rstrip("/")
     validate_service_url(
         base_url,
         environment=os.getenv("ENVIRONMENT", "development"),
-        setting="SENDGRID_BASE_URL",
+        setting="RESEND_BASE_URL",
     )
     result = asyncio.run(
         _send_smoke(
-            api_key=required("SENDGRID_API_KEY"),
+            api_key=required("RESEND_API_KEY"),
             base_url=base_url,
             sender=sender,
             recipient=recipient,
         )
     )
-    print(f"SendGrid smoke result: {result.state.value}")
+    print(f"Resend smoke result: {result.state.value}")
     if result.state is not DeliveryState.PROVIDER_ACCEPTED:
         raise SystemExit(1)
 
@@ -64,7 +64,7 @@ async def _send_smoke(
         timeout=httpx.Timeout(5.0),
         follow_redirects=False,
     ) as client:
-        mailer = SendGridMailer(
+        mailer = ResendMailer(
             api_key=api_key,
             base_url=base_url,
             from_email=sender.value,
@@ -73,8 +73,8 @@ async def _send_smoke(
         return await mailer.send(
             MailMessage(
                 recipient=recipient,
-                subject="AlmaPortal SendGrid smoke test",
-                plain_body="This is an authorized AlmaPortal SendGrid smoke test.",
-                html_body="<p>This is an authorized AlmaPortal SendGrid smoke test.</p>",
+                subject="AlmaPortal Resend smoke test",
+                plain_body="This is an authorized AlmaPortal Resend smoke test.",
+                html_body="<p>This is an authorized AlmaPortal Resend smoke test.</p>",
             )
         )

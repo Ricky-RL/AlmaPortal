@@ -14,8 +14,8 @@ def settings_values(**changes: Any) -> dict[str, Any]:
         "database_url": "postgresql://user:password@localhost/alma",
         "supabase_url": "http://127.0.0.1:54321",
         "supabase_service_role_key": "service-key",
-        "sendgrid_api_key": "sendgrid-key",
-        "sendgrid_from_email": "sender@example.com",
+        "resend_api_key": "resend-key",
+        "resend_from_email": "sender@example.com",
         "attorney_notification_email": "attorney@example.com",
         "public_api_url": "http://127.0.0.1:8000",
         "supabase_jwt_issuer": "http://127.0.0.1:54321/auth/v1",
@@ -46,23 +46,23 @@ def production_values(**changes: Any) -> dict[str, Any]:
 def test_provider_defaults_match_canonical_services() -> None:
     settings = Settings(**settings_values())
     assert settings.storage_bucket == "resumes"
-    assert settings.sendgrid_base_url == "https://api.sendgrid.com"
+    assert settings.resend_base_url == "https://api.resend.com"
 
 
-def test_sendgrid_http_loopback_is_allowed_only_outside_production() -> None:
-    settings = Settings(**settings_values(sendgrid_base_url="http://127.0.0.1:4010"))
-    assert settings.sendgrid_base_url == "http://127.0.0.1:4010"
+def test_resend_http_loopback_is_allowed_only_outside_production() -> None:
+    settings = Settings(**settings_values(resend_base_url="http://127.0.0.1:4010"))
+    assert settings.resend_base_url == "http://127.0.0.1:4010"
     with pytest.raises(ValidationError):
         Settings(
             **settings_values(
                 environment="production",
                 cors_origins=("https://alma.example",),
                 public_api_url="https://api.alma.example",
-                sendgrid_base_url="http://127.0.0.1:4010",
+                resend_base_url="http://127.0.0.1:4010",
             )
         )
     with pytest.raises(ValidationError):
-        Settings(**settings_values(sendgrid_base_url="http://sendgrid.example"))
+        Settings(**settings_values(resend_base_url="http://resend.example"))
 
 
 def test_public_api_url_rejects_paths_credentials_and_insecure_remote_hosts() -> None:
@@ -134,7 +134,7 @@ def test_production_provider_origins_are_exact_and_credential_free() -> None:
         {"supabase_url": "https://project.supabase.co/rest"},
         {"supabase_jwt_issuer": "https://other.example/auth/v1"},
         {"supabase_jwks_url": "https://other.example/jwks.json"},
-        {"sendgrid_base_url": "https://sendgrid.example"},
+        {"resend_base_url": "https://resend.example"},
     )
     for changes in invalid:
         with pytest.raises(ValidationError):

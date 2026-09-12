@@ -86,12 +86,12 @@ export const contract = {
     cursorFixtureCount: integerEnv("E2E_CURSOR_FIXTURE_COUNT", 26),
     maxUploadBytes: integerEnv("E2E_MAX_UPLOAD_BYTES", 10 * 1024 * 1024),
   },
-  sendgrid: {
+  resend: {
     origin: env(
-      "E2E_SENDGRID_STUB_ORIGIN",
+      "E2E_RESEND_STUB_ORIGIN",
       "http://127.0.0.1:4319",
     ),
-    startStub: env("E2E_START_SENDGRID_STUB", "true") !== "false",
+    startStub: env("E2E_START_RESEND_STUB", "true") !== "false",
   },
 } as const;
 
@@ -128,21 +128,21 @@ export function requireSupabaseEnvironment(): void {
 }
 
 export function requireExternalDeliveryIsolation(): void {
-  const configured = process.env.SENDGRID_BASE_URL?.trim();
+  const configured = process.env.RESEND_BASE_URL?.trim();
   if (!configured) {
     throw new Error(
-      "SENDGRID_BASE_URL must be present in the E2E environment so email isolation can be verified.",
+      "RESEND_BASE_URL must be present in the E2E environment so email isolation can be verified.",
     );
   }
 
   const configuredUrl = new URL(configured);
-  const stubUrl = new URL(contract.sendgrid.origin);
+  const stubUrl = new URL(contract.resend.origin);
   const isLoopback = ["localhost", "127.0.0.1", "::1"].includes(
     configuredUrl.hostname,
   );
   if (!isLoopback || configuredUrl.origin !== stubUrl.origin) {
     throw new Error(
-      `SENDGRID_BASE_URL must match the local E2E stub origin ${stubUrl.origin}; received ${configuredUrl.origin}.`,
+      `RESEND_BASE_URL must match the local E2E stub origin ${stubUrl.origin}; received ${configuredUrl.origin}.`,
     );
   }
 }

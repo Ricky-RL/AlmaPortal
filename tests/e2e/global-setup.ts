@@ -2,7 +2,7 @@ import type { FullConfig } from "@playwright/test";
 
 import { requireExternalDeliveryIsolation } from "./helpers/contract.js";
 import { LocalSupabaseAdmin } from "./helpers/supabase-admin.js";
-import { SendgridStub } from "./helpers/sendgrid-stub.js";
+import { ResendStub } from "./helpers/resend-stub.js";
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
   requireExternalDeliveryIsolation();
@@ -10,6 +10,6 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   const admin = new LocalSupabaseAdmin();
   await admin.ensureSyntheticGoogleUser();
 
-  const sendgrid = new SendgridStub();
-  await sendgrid.reset();
+  const resend = new ResendStub();
+  await resend.reset();
 }

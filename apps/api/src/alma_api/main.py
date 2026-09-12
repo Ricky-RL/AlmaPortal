@@ -30,7 +30,7 @@ from alma_api.domain import NormalizedEmail
 from alma_api.infrastructure import (
     HmacTicketSigner,
     InMemoryRateLimiter,
-    SendGridMailer,
+    ResendMailer,
     SupabaseStorage,
     SystemClock,
 )
@@ -69,10 +69,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bucket=resolved.storage_bucket,
         client=provider_client,
     )
-    mailer = SendGridMailer(
-        api_key=resolved.sendgrid_api_key.get_secret_value(),
-        base_url=resolved.sendgrid_base_url,
-        from_email=NormalizedEmail.parse(resolved.sendgrid_from_email).value,
+    mailer = ResendMailer(
+        api_key=resolved.resend_api_key.get_secret_value(),
+        base_url=resolved.resend_base_url,
+        from_email=NormalizedEmail.parse(resolved.resend_from_email).value,
         client=provider_client,
     )
     composer = EmailComposer(NormalizedEmail.parse(resolved.attorney_notification_email))
