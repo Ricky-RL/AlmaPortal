@@ -1,11 +1,12 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CheckCircle2, FileUp } from "lucide-react";
+import { CheckCircle2, FileCheck, FileUp } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button, Card, FieldError, Input, Textarea } from "@/components/ui";
+import { cn } from "@/lib/utils";
 import {
   ACCEPTED_RESUME_EXTENSIONS,
   MAX_RESUME_BYTES,
@@ -59,6 +60,16 @@ export const leadFormSchema = z.object({
 
 type LeadFormValues = z.infer<typeof leadFormSchema>;
 
+function formatResumeSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KiB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 export function LeadForm({
   uploader = uploadPublicLead,
 }: {
@@ -67,6 +78,7 @@ export function LeadForm({
   const [progress, setProgress] = useState(0);
   const [submissionError, setSubmissionError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
+  const [selectedResume, setSelectedResume] = useState<File>();
   const {
     register,
     handleSubmit,
@@ -81,6 +93,7 @@ export function LeadForm({
       acknowledgement: false,
     },
   });
+  const resumeField = register("resume");
 
   const submit = handleSubmit(async (values) => {
     setSubmissionError(undefined);
@@ -204,26 +217,68 @@ export function LeadForm({
           <FieldError id="comments-error" message={errors.comments?.message} />
         </div>
 
-        <label className="mt-5 block font-semibold">
-          Resume or CV
-          <span className="mt-1 block text-sm font-normal text-[var(--muted)]">
-            One PDF, DOC, or DOCX file. Maximum 10 MiB.
-          </span>
-          <span className="relative mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--green)] bg-white px-4 text-center hover:bg-[var(--cream)]">
-            <FileUp className="mb-2 size-6" aria-hidden="true" />
-            <span className="text-sm">Choose a synthetic resume or CV</span>
-            <input
-              className="sr-only"
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              aria-invalid={Boolean(errors.resume)}
-              aria-describedby={errors.resume ? "resume-error" : undefined}
-              disabled={isSubmitting}
-              {...register("resume")}
-            />
-          </span>
+        <div className="relative mt-5">
+          <input
+            id="resume"
+            className="peer sr-only"
+            type="file"
+            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            aria-invalid={Boolean(errors.resume)}
+            aria-describedby={
+              errors.resume
+                ? "resume-instructions resume-error"
+                : "resume-instructions"
+            }
+            disabled={isSubmitting}
+            {...resumeField}
+            onChange={(event) => {
+              void resumeField.onChange(event);
+              setSelectedResume(event.currentTarget.files?.[0]);
+            }}
+          />
+          <label
+            className="block font-semibold peer-focus-visible:rounded-2xl peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--coral)]"
+            htmlFor="resume"
+          >
+            Resume or CV
+            <span
+              id="resume-instructions"
+              className="mt-1 block text-sm font-normal text-[var(--muted)]"
+            >
+              One PDF, DOC, or DOCX file. Maximum 10 MiB.
+            </span>
+            <span
+              className={cn(
+                "mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-[var(--green)] px-4 text-center",
+                selectedResume
+                  ? "border-solid bg-[var(--cream)]"
+                  : "border-dashed bg-white hover:bg-[var(--cream)]",
+              )}
+            >
+              {selectedResume ? (
+                <FileCheck className="mb-2 size-6" aria-hidden="true" />
+              ) : (
+                <FileUp className="mb-2 size-6" aria-hidden="true" />
+              )}
+              {selectedResume ? (
+                <>
+                  <span className="max-w-full break-all text-sm font-semibold">
+                    {selectedResume.name}
+                  </span>
+                  <span className="mt-1 text-xs font-normal text-[var(--muted)]">
+                    {formatResumeSize(selectedResume.size)}. Choose again to
+                    replace.
+                  </span>
+                </>
+              ) : (
+                <span className="text-sm font-normal">
+                  Choose a synthetic resume or CV
+                </span>
+              )}
+            </span>
+          </label>
           <FieldError id="resume-error" message={errors.resume?.message} />
-        </label>
+        </div>
 
         <label className="mt-6 flex items-start gap-3 rounded-2xl bg-[var(--cream-deep)] p-4 font-medium">
           <input
