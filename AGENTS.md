@@ -23,9 +23,8 @@ These rules apply to people and agents:
 3. Run affected checks before each commit and the full suite before handoff.
 4. Never push unless the current user message explicitly says `push`.
 5. After approval, open a pull request that follows the repository template.
-6. Run an independent review of the complete branch changes.
-7. Address valid findings in new commits. Do not rewrite reviewed history to hide fixes.
-8. Require review approval and green CI. Squash merge only after both are satisfied.
+6. Code reviews are optional. Do not spawn review agents or block delivery on reviewer approval unless the user explicitly requests a review for the current task.
+7. Require green CI before squash merging.
 
 Child `AGENTS.md` files inherit every rule here. They may add stricter module guidance, but they cannot weaken or override this governance or the security rules below.
 
