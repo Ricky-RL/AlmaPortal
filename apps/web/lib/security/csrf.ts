@@ -50,10 +50,21 @@ export function canonicalRequestError(request: NextRequest) {
     return "The canonical application URL is invalid.";
   }
 
-  if (request.headers.get("origin") !== canonical.origin) {
+  const allowedOrigins = new Set([canonical.origin]);
+  const allowedHosts = new Set([canonical.host.toLowerCase()]);
+  if (localHttp) {
+    const port = canonical.port ? `:${canonical.port}` : "";
+    allowedOrigins.add(`http://127.0.0.1${port}`);
+    allowedOrigins.add(`http://localhost${port}`);
+    allowedHosts.add(`127.0.0.1${port}`.toLowerCase());
+    allowedHosts.add(`localhost${port}`.toLowerCase());
+  }
+
+  const origin = request.headers.get("origin");
+  if (!origin || !allowedOrigins.has(origin)) {
     return "Request origin is not allowed.";
   }
-  if (request.headers.get("host")?.toLowerCase() !== canonical.host.toLowerCase()) {
+  if (!allowedHosts.has((request.headers.get("host") ?? "").toLowerCase())) {
     return "Request host is not allowed.";
   }
   return null;

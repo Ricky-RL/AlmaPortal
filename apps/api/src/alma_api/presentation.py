@@ -146,6 +146,7 @@ class LeadResponse(StrictModel):
     first_name: str
     last_name: str
     email: str
+    comments: str | None
     resume_filename: str
     resume_media_type: str
     resume_size_bytes: int
@@ -173,6 +174,7 @@ class LeadResponse(StrictModel):
             first_name=lead.first_name.value,
             last_name=lead.last_name.value,
             email=lead.email.value,
+            comments=lead.comments,
             resume_filename=lead.resume.original_filename,
             resume_media_type=lead.resume.media_type,
             resume_size_bytes=lead.resume.size_bytes,
@@ -280,22 +282,28 @@ def create_router() -> APIRouter:
         try:
             async with request.form(
                 max_files=1,
-                max_fields=4,
+                max_fields=5,
                 max_part_size=MAX_RESUME_BYTES + 1,
             ) as form:
-                expected = {
+                required = {
                     "first_name",
                     "last_name",
                     "email",
                     "synthetic_data_acknowledged",
                     "resume",
                 }
+                optional = {"comments"}
                 items = form.multi_items()
-                if {name for name, _ in items} != expected or len(items) != len(expected):
+                names = {name for name, _ in items}
+                if (
+                    not required <= names
+                    or not names <= required | optional
+                    or len(items) != len(names)
+                ):
                     raise DomainError(
                         "invalid_multipart_fields",
-                        "submit exactly first_name, last_name, email, "
-                        "synthetic_data_acknowledged, and one resume",
+                        "submit first_name, last_name, email, "
+                        "synthetic_data_acknowledged, one resume, and optional comments",
                     )
                 values = dict(items)
                 file = values["resume"]
@@ -315,6 +323,16 @@ def create_router() -> APIRouter:
                             "text fields cannot be files",
                         )
                     text_fields[name] = value
+                raw_comments = values.get("comments")
+                if raw_comments is None:
+                    comments_text: str | None = None
+                elif isinstance(raw_comments, str):
+                    comments_text = raw_comments
+                else:
+                    raise DomainError(
+                        "invalid_multipart_fields",
+                        "text fields cannot be files",
+                    )
                 content = await _read_upload(file)
                 validated = validate_resume(content, file.filename or "resume")
                 consent = text_fields["synthetic_data_acknowledged"].strip().lower()
@@ -330,6 +348,7 @@ def create_router() -> APIRouter:
                         email=text_fields["email"],
                         synthetic_data_acknowledged=consent == "true",
                         resume=validated,
+                        comments=comments_text,
                     )
                 )
         except HTTPException as exc:

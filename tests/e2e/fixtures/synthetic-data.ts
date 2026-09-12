@@ -15,6 +15,7 @@ export type Prospect = {
   firstName: string;
   lastName: string;
   email: string;
+  comments?: string;
   acknowledged: boolean;
   cv: UploadFixture;
 };

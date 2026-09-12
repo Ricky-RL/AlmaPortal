@@ -89,7 +89,7 @@ begin
         'EXECUTE'
     ) or not has_function_privilege(
         'alma_api',
-        'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text)',
+        'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text,text)',
         'EXECUTE'
     ) or not has_function_privilege(
         'alma_api',
@@ -134,7 +134,7 @@ begin
         'EXECUTE'
     ) or has_function_privilege(
         'authenticated',
-        'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text)',
+        'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text,text)',
         'EXECUTE'
     ) then
         raise exception 'a browser role can execute an API write function';

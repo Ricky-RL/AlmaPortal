@@ -5,7 +5,7 @@ import { CheckCircle2, FileUp } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Button, Card, FieldError, Input } from "@/components/ui";
+import { Button, Card, FieldError, Input, Textarea } from "@/components/ui";
 import {
   ACCEPTED_RESUME_EXTENSIONS,
   MAX_RESUME_BYTES,
@@ -36,10 +36,18 @@ const resumeSchema = z
     );
   }, "Use a PDF, DOC, or DOCX file.");
 
+export const MAX_COMMENTS_LENGTH = 2000;
+
 export const leadFormSchema = z.object({
   firstName: z.string().trim().min(1, "Enter a first name.").max(100),
   lastName: z.string().trim().min(1, "Enter a last name.").max(100),
   email: z.string().trim().email("Enter a valid email address.").max(320),
+  comments: z
+    .string()
+    .max(
+      MAX_COMMENTS_LENGTH,
+      `Comments must be at most ${MAX_COMMENTS_LENGTH} characters.`,
+    ),
   resume: resumeSchema,
   acknowledgement: z
     .boolean()
@@ -69,6 +77,7 @@ export function LeadForm({
       firstName: "",
       lastName: "",
       email: "",
+      comments: "",
       acknowledgement: false,
     },
   });
@@ -77,6 +86,7 @@ export function LeadForm({
     setSubmissionError(undefined);
     setProgress(0);
     try {
+      const comments = values.comments.trim();
       await uploader(
         {
           firstName: values.firstName.trim(),
@@ -84,6 +94,7 @@ export function LeadForm({
           email: values.email.trim(),
           resume: values.resume[0],
           syntheticDataAcknowledged: true,
+          ...(comments ? { comments } : {}),
         },
         setProgress,
       );
@@ -164,6 +175,34 @@ export function LeadForm({
           />
           <FieldError id="email-error" message={errors.email?.message} />
         </label>
+
+        <div className="mt-5">
+          <label className="block font-semibold" htmlFor="comments">
+            Comments{" "}
+            <span className="font-normal text-[var(--muted)]">(optional)</span>
+          </label>
+          <span
+            id="comments-instructions"
+            className="mt-1 block text-sm font-normal text-[var(--muted)]"
+          >
+            Add any additional notes for reviewers. Maximum 2,000 characters.
+          </span>
+          <Textarea
+            id="comments"
+            className="mt-2"
+            rows={4}
+            maxLength={MAX_COMMENTS_LENGTH}
+            aria-invalid={Boolean(errors.comments)}
+            aria-describedby={
+              errors.comments
+                ? "comments-instructions comments-error"
+                : "comments-instructions"
+            }
+            disabled={isSubmitting}
+            {...register("comments")}
+          />
+          <FieldError id="comments-error" message={errors.comments?.message} />
+        </div>
 
         <label className="mt-5 block font-semibold">
           Resume or CV

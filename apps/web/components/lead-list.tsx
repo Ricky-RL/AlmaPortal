@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import {
+  ApiError,
   getLeadSummary,
   searchLeads,
 } from "@/lib/api/client";
@@ -39,8 +40,12 @@ export function LeadList() {
       setSummary(nextSummary);
       setItems(page.items);
       setNextCursor(page.nextCursor);
-    } catch {
-      setError("Lead data could not be loaded. Try again.");
+    } catch (error) {
+      setError(
+        error instanceof ApiError
+          ? error.message
+          : "Lead data could not be loaded. Try again.",
+      );
     } finally {
       setLoading(false);
     }

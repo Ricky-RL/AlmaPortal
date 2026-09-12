@@ -16,6 +16,7 @@ test.describe("public prospect submission", () => {
       publicForm.page.getByRole("heading", { level: 1 }),
     ).toBeVisible();
     await expect(publicForm.form).toBeVisible();
+    await expect(publicForm.comments).toBeVisible();
 
     await publicForm.fill(prospect);
     await publicForm.submitForm();
