@@ -209,10 +209,10 @@ export function LeadForm({
           <span className="mt-1 block text-sm font-normal text-[var(--muted)]">
             One PDF, DOC, or DOCX file. Maximum 10 MiB.
           </span>
-          <span className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--green)] bg-white px-4 text-center hover:bg-[var(--cream)]">
+          <span className="relative mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--green)] bg-white px-4 text-center hover:bg-[var(--cream)]">
             <FileUp className="mb-2 size-6" aria-hidden="true" />
             <span className="text-sm">Choose a synthetic resume or CV</span>
-            <Input
+            <input
               className="sr-only"
               type="file"
               accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
