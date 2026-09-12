@@ -34,6 +34,7 @@ from alma_api.domain import (
     PersonName,
     ResumeFormat,
     ResumeMetadata,
+    parse_optional_comments,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ class SubmitLeadCommand:
     email: str
     synthetic_data_acknowledged: bool
     resume: ValidatedResume
+    comments: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,17 +309,27 @@ class EmailComposer:
                 ),
             )
         full_name = f"{lead.first_name.value} {lead.last_name.value}"
+        comments_plain = ""
+        comments_html = ""
+        if lead.comments:
+            comments_plain = f"\n\nAdditional comments:\n{lead.comments}"
+            comments_html = (
+                "<p>Additional comments:</p>"
+                f"<p>{escape_html(lead.comments).replace(chr(10), '<br>')}</p>"
+            )
         return MailMessage(
             recipient=self._attorney_email,
             subject="New AlmaPortal lead",
             plain_body=(
                 f"A new lead was submitted by {full_name} ({lead.email.value}). "
                 "Review the lead in AlmaPortal. The resume is not attached."
+                f"{comments_plain}"
             ),
             html_body=(
                 f"<p>A new lead was submitted by {escape_html(full_name)} "
                 f"({escape_html(lead.email.value)}).</p>"
                 "<p>Review the lead in AlmaPortal. The resume is not attached.</p>"
+                f"{comments_html}"
             ),
         )
 
@@ -448,6 +460,7 @@ class SubmitLead:
             ),
             now=self._clock.now(),
             lead_id=lead_id,
+            comments=parse_optional_comments(command.comments),
         )
         uploaded = False
         try:

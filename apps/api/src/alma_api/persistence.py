@@ -76,6 +76,7 @@ class LeadRow(Base):
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
     normalized_email: Mapped[str] = mapped_column(String(320))
+    comments: Mapped[str | None] = mapped_column(String(2000))
     resume_object_path: Mapped[str] = mapped_column(String(260), unique=True)
     original_filename: Mapped[str] = mapped_column(String(180))
     detected_media_type: Mapped[str] = mapped_column(String(100))
@@ -168,7 +169,8 @@ class SqlAlchemyLeadRepository:
                 p_detected_media_type => :detected_media_type,
                 p_byte_size => :byte_size,
                 p_prospect_recipient => :prospect_recipient,
-                p_attorney_recipient => :attorney_recipient
+                p_attorney_recipient => :attorney_recipient,
+                p_comments => :comments
               )
             """
         )
@@ -186,6 +188,7 @@ class SqlAlchemyLeadRepository:
                     "byte_size": lead.resume.size_bytes,
                     "prospect_recipient": prospect_recipient.value,
                     "attorney_recipient": attorney_recipient.value,
+                    "comments": lead.comments,
                 },
             )
             return _mapping_to_lead(result.mappings().one())
@@ -236,6 +239,7 @@ class SqlAlchemyLeadRepository:
                     LeadRow.first_name.ilike(pattern, escape="\\"),
                     LeadRow.last_name.ilike(pattern, escape="\\"),
                     LeadRow.normalized_email.ilike(pattern, escape="\\"),
+                    LeadRow.comments.ilike(pattern, escape="\\"),
                 )
             )
         if status is not None:
@@ -542,7 +546,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
                     coalesce(has_function_privilege(
                         current_user,
                         to_regprocedure(
-                            'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text)'
+                            'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text,text)'
                         ),
                         'EXECUTE'
                     ), false) as can_create_lead,
@@ -621,6 +625,7 @@ def _row_to_lead(row: LeadRow) -> Lead:
             "first_name": row.first_name,
             "last_name": row.last_name,
             "normalized_email": row.normalized_email,
+            "comments": row.comments,
             "resume_object_path": row.resume_object_path,
             "original_filename": row.original_filename,
             "detected_media_type": row.detected_media_type,
@@ -664,6 +669,7 @@ def _lead_from_values(value: Mapping[Any, Any]) -> Lead:
         status=LeadStatus(str(value["status"])),
         created_at=cast(datetime, value["created_at"]),
         updated_at=cast(datetime, value["updated_at"]),
+        comments=str(value["comments"]) if value.get("comments") else None,
         reached_out_by=reviewer,
         reached_out_at=cast(datetime | None, value["reached_out_at"]),
     )

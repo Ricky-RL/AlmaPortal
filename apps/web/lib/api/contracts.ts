@@ -72,6 +72,7 @@ export type AuditEvent = {
 };
 
 export type LeadDetail = LeadListItem & {
+  comments: string | null;
   resumeName: string | null;
   resumeMediaType: string | null;
   resumeSizeBytes: number | null;
@@ -312,6 +313,7 @@ export function normalizeLeadDetail(value: unknown): LeadDetail {
   const audit = Array.isArray(rawAudit) ? rawAudit : fallbackAudit;
   return {
     ...base,
+    comments: text(pick(item, "comments")) || null,
     resumeName:
       text(
         pick(

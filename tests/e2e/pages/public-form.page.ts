@@ -9,6 +9,7 @@ export class PublicFormPage {
   readonly firstName: Locator;
   readonly lastName: Locator;
   readonly email: Locator;
+  readonly comments: Locator;
   readonly cv: Locator;
   readonly acknowledgement: Locator;
   readonly submit: Locator;
@@ -19,6 +20,7 @@ export class PublicFormPage {
     this.firstName = page.getByRole("textbox", { name: "First name" });
     this.lastName = page.getByRole("textbox", { name: "Last name" });
     this.email = page.getByRole("textbox", { name: "Email" });
+    this.comments = page.getByRole("textbox", { name: /comments/i });
     this.cv = page.getByLabel("Resume or CV");
     this.acknowledgement = page.getByRole("checkbox", {
       name: /I confirm that all entered details.*synthetic.*no real PII/i,
@@ -39,6 +41,9 @@ export class PublicFormPage {
     await this.firstName.fill(prospect.firstName);
     await this.lastName.fill(prospect.lastName);
     await this.email.fill(prospect.email);
+    if (prospect.comments) {
+      await this.comments.fill(prospect.comments);
+    }
     await this.cv.setInputFiles(options.file ?? prospect.cv);
     if (options.acknowledge ?? prospect.acknowledged) {
       await this.acknowledgement.check();

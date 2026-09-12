@@ -66,6 +66,29 @@ describe("public multipart upload", () => {
     ]);
   });
 
+  it("sends comments only when they are present", async () => {
+    process.env.NEXT_PUBLIC_API_URL = "https://api.example.test";
+    vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
+
+    await expect(
+      uploadPublicLead(
+        {
+          firstName: "Ada",
+          lastName: "Lovelace",
+          email: "ada@example.test",
+          resume: new File(["synthetic"], "synthetic.pdf"),
+          syntheticDataAcknowledged: true,
+          comments: "Please review visa timing.",
+        },
+        vi.fn(),
+      ),
+    ).rejects.toMatchObject({ status: 429 });
+
+    expect(FakeXmlHttpRequest.last.body!.get("comments")).toBe(
+      "Please review visa timing.",
+    );
+  });
+
   it("maps every required public response status", () => {
     expect(uploadErrorMessage(413)).toMatch(/10 MiB/);
     expect(uploadErrorMessage(422)).toMatch(/validate/);

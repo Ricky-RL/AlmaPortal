@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from alma_api.application import DependencyUnavailableError, StoredObject
+from alma_api.application import DependencyUnavailableError, StoredObject, SubmitLeadCommand
 from alma_api.domain import (
     AuthenticatedReviewer,
     Lead,
@@ -41,9 +41,9 @@ class ReadyUow:
 
 class FakeSubmit:
     def __init__(self) -> None:
-        self.commands: list[object] = []
+        self.commands: list[SubmitLeadCommand] = []
 
-    async def __call__(self, command: object) -> Lead:
+    async def __call__(self, command: SubmitLeadCommand) -> Lead:
         self.commands.append(command)
         lead_id = uuid4()
         return Lead.submit(
@@ -113,6 +113,29 @@ async def test_public_multipart_contract_accepts_exact_fields() -> None:
         )
     assert response.status_code == 201
     assert len(submit.commands) == 1
+    assert submit.commands[0].comments is None
+
+
+@pytest.mark.asyncio
+async def test_public_multipart_contract_accepts_optional_comments() -> None:
+    app, submit = build_test_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/v1/leads",
+            data={
+                "first_name": "Ada",
+                "last_name": "Lovelace",
+                "email": "ada@example.com",
+                "synthetic_data_acknowledged": "true",
+                "comments": "Please review the visa timeline.",
+            },
+            files={"resume": ("resume.pdf", b"%PDF-1.7", "application/pdf")},
+        )
+    assert response.status_code == 201
+    assert submit.commands[0].comments == "Please review the visa timeline."
 
 
 @pytest.mark.asyncio

@@ -109,6 +109,7 @@ test.describe("authenticated lead dashboard", () => {
     data,
   }) => {
     const prospect = data.prospect("detail");
+    prospect.comments = "Please review the visa timeline.";
     await api.submitProspect(prospect);
 
     await dashboard.open();
@@ -117,6 +118,7 @@ test.describe("authenticated lead dashboard", () => {
     await expect(
       dashboard.page.getByText(prospect.email, { exact: true }),
     ).toBeVisible();
+    await expect(dashboard.page.getByText(prospect.comments!, { exact: true })).toBeVisible();
     await expect(dashboard.status("PENDING")).toBeVisible();
     await expect(
       dashboard.notificationStatus("PROVIDER_ACCEPTED"),
