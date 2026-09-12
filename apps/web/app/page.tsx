@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { AssessmentBanner } from "@/components/assessment-banner";
 import { LeadForm } from "@/components/lead-form";
@@ -8,6 +9,14 @@ export default function HomePage() {
       <AssessmentBanner />
       <main className="mx-auto grid max-w-6xl gap-12 px-5 py-12 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:py-20">
         <section className="self-center">
+          <Image
+            src="/alma-logo.png"
+            alt="Alma"
+            width={214}
+            height={96}
+            priority
+            className="mb-8 h-auto w-[214px] max-w-[70%] mix-blend-multiply"
+          />
           <p className="mb-4 text-sm font-bold uppercase tracking-[0.16em] text-[var(--green-light)]">
             Legal lead assessment
           </p>
