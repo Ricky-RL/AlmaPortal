@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle2, FileUp } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button, Card, FieldError, Input } from "@/components/ui";
 import {
@@ -62,6 +62,7 @@ export function LeadForm({
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<LeadFormValues>({
     resolver: zodResolver(leadFormSchema),
@@ -72,6 +73,7 @@ export function LeadForm({
       acknowledgement: false,
     },
   });
+  const selectedResume = useWatch({ control, name: "resume" })?.[0];
 
   const submit = handleSubmit(async (values) => {
     setSubmissionError(undefined);
@@ -165,26 +167,53 @@ export function LeadForm({
           <FieldError id="email-error" message={errors.email?.message} />
         </label>
 
-        <label className="mt-5 block font-semibold">
-          Resume or CV
-          <span className="mt-1 block text-sm font-normal text-[var(--muted)]">
-            One PDF, DOC, or DOCX file. Maximum 10 MiB.
-          </span>
-          <span className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--green)] bg-white px-4 text-center hover:bg-[var(--cream)]">
-            <FileUp className="mb-2 size-6" aria-hidden="true" />
-            <span className="text-sm">Choose a synthetic resume or CV</span>
-            <Input
-              className="sr-only"
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              aria-invalid={Boolean(errors.resume)}
-              aria-describedby={errors.resume ? "resume-error" : undefined}
-              disabled={isSubmitting}
-              {...register("resume")}
-            />
-          </span>
+        <div className="mt-5">
+          <input
+            id="resume"
+            className="peer sr-only"
+            type="file"
+            accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            aria-invalid={Boolean(errors.resume)}
+            aria-describedby={
+              errors.resume
+                ? "resume-instructions resume-error"
+                : "resume-instructions"
+            }
+            disabled={isSubmitting}
+            {...register("resume")}
+          />
+          <label
+            className="block font-semibold peer-focus-visible:rounded-2xl peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--coral)]"
+            htmlFor="resume"
+          >
+            Resume or CV
+            <span
+              id="resume-instructions"
+              className="mt-1 block text-sm font-normal text-[var(--muted)]"
+            >
+              One PDF, DOC, or DOCX file. Maximum 10 MiB.
+            </span>
+            <span className="mt-2 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--green)] bg-white px-4 text-center hover:bg-[var(--cream)]">
+              <FileUp className="mb-2 size-6" aria-hidden="true" />
+              {selectedResume ? (
+                <>
+                  <span className="max-w-full break-all text-sm font-semibold">
+                    {selectedResume.name}
+                  </span>
+                  <span className="mt-1 text-xs font-normal text-[var(--muted)]">
+                    {(selectedResume.size / 1024).toFixed(1)} KiB. Choose again
+                    to replace.
+                  </span>
+                </>
+              ) : (
+                <span className="text-sm font-normal">
+                  Choose a synthetic resume or CV
+                </span>
+              )}
+            </span>
+          </label>
           <FieldError id="resume-error" message={errors.resume?.message} />
-        </label>
+        </div>
 
         <label className="mt-6 flex items-start gap-3 rounded-2xl bg-[var(--cream-deep)] p-4 font-medium">
           <input
