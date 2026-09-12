@@ -14,6 +14,7 @@ Email and phone signup, outbound mail, analytics, and Edge Runtime are
 disabled. Google OAuth is enabled for local reviewer sign-in when
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are present. The private
 `resumes` bucket accepts PDF, DOC, and DOCX objects up to 10 MiB.
+Lead metadata requires a non-empty object size from 1 byte through 10 MiB.
 
 ## API transaction flow
 
@@ -31,13 +32,17 @@ disabled. Google OAuth is enabled for local reviewer sign-in when
 5. Generate an attempt UUID and call `claim_email_delivery(...)`. Manual
    claims reserve one retry credit using that attempt UUID, enforce a
    one-minute cooldown, and stop after five manual retries. There is no
-   separately callable retry-reservation function.
+   separately callable retry-reservation function. Initial attempts have no
+   reviewer attribution; every manual attempt records reviewer ID and email.
 6. Send mail, then call `complete_email_delivery_attempt(...)` with the claim
    token. The JSON result reports `completed`, `already_completed`, or
    `stale_claim`; stale claims cannot overwrite the current projection.
-7. A worker calls `expire_email_delivery_claim(delivery_uuid)` for expired
-   processing rows. The attempt becomes `unknown`, the JSON result reports the
-   projection state, and no budget is refunded.
+7. A worker calls and commits
+   `expire_email_delivery_claim(delivery_uuid)` for processing rows. It returns
+   durable `expired_to_unknown`, `active_lease`, or `not_processing` status.
+   After an `expired_to_unknown` commit, a later transaction calls
+   `claim_email_delivery(...)` with unknown-outcome confirmation and observes
+   the one-minute cooldown. No budget is refunded.
 
 An active processing lease rejects a manual claim with SQLSTATE `55P03`. A
 manual claim on an expired lease closes the old attempt as `unknown` in the
@@ -62,6 +67,9 @@ Expected exception mappings are:
 
 `mark_lead_reached_out(...)` is a one-way, idempotent audit transition.
 Delivery attempt identity and completed history cannot be edited or deleted.
+The transaction-functions migration revokes default function execution from
+`PUBLIC` before creating security-definer routines. Only grants declared in
+the roles and policies migration expose the approved functions to `alma_api`.
 
 ## Runtime credential
 
@@ -81,10 +89,14 @@ Neither script path prints or writes the secret.
 ## Storage reconciliation and local reset
 
 `storage_reconcile.py` produces a read-only orphan and missing-object report.
-Object removal requires a saved plan less than 24 hours old, the exact
-confirmation token printed by `--help`, and server-side Storage credentials.
-Each object is checked again before deletion and removed through the Storage
-API, never by changing Storage tables.
+Objects created in the last 15 minutes are excluded from plans. Object removal
+requires a saved plan less than 24 hours old,
+`--confirm PURGE-ORPHAN-RESUMES`,
+`--confirm-submissions-quiesced SUBMISSIONS-QUIESCED`, and server-side Storage
+credentials. Apply rechecks the object ID, path, creation time, update time,
+metadata fingerprint, age, and absence of a lead reference. Fresh or changed
+objects are skipped. Deletion uses the Storage API, never direct changes to
+Storage tables.
 
 `demo_reset.sh` prints a plan by default and only resets the local Supabase
 stack after an explicit confirmation. It rejects database URL environment

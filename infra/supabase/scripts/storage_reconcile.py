@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan resume-storage reconciliation and optionally apply an reviewed plan."""
+"""Plan resume-storage reconciliation and optionally apply a reviewed plan."""
 
 from __future__ import annotations
 
@@ -26,7 +26,9 @@ ADMIN_URL_ENV = "SUPABASE_DB_ADMIN_URL"
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SERVICE_KEY_ENV = "SUPABASE_SERVICE_ROLE_KEY"
 CONFIRMATION = "PURGE-ORPHAN-RESUMES"
-PLAN_VERSION = 1
+QUIESCENCE_CONFIRMATION = "SUBMISSIONS-QUIESCED"
+GRACE_WINDOW = dt.timedelta(minutes=15)
+PLAN_VERSION = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,6 +50,13 @@ def parse_args() -> argparse.Namespace:
         help="apply orphan deletions from a prior JSON plan",
     )
     parser.add_argument("--confirm", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--confirm-submissions-quiesced",
+        help=(
+            "required exact confirmation that new resume submissions are paused "
+            "before applying a deletion plan"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -62,24 +71,38 @@ def build_plan(connection: psycopg.Connection[Any]) -> dict[str, Any]:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            select o.name,
+            select o.id,
+                   o.name,
                    coalesce((o.metadata ->> 'size')::bigint, 0) as object_bytes,
-                   o.created_at
+                   o.created_at,
+                   o.updated_at,
+                   md5(coalesce(o.metadata::text, '')) as metadata_fingerprint
               from storage.objects as o
               left join public.leads as l
                 on l.resume_object_path = o.name
              where o.bucket_id = 'resumes'
                and l.id is null
+               and o.created_at <= clock_timestamp() - interval '15 minutes'
              order by o.name
             """
         )
         orphan_objects = [
             {
+                "object_id": str(object_id),
                 "path": path,
                 "byte_size": byte_size,
                 "created_at": created_at.isoformat() if created_at else None,
+                "updated_at": updated_at.isoformat() if updated_at else None,
+                "metadata_fingerprint": metadata_fingerprint,
             }
-            for path, byte_size, created_at in cursor.fetchall()
+            for (
+                object_id,
+                path,
+                byte_size,
+                created_at,
+                updated_at,
+                metadata_fingerprint,
+            ) in cursor.fetchall()
         ]
 
         cursor.execute(
@@ -106,6 +129,8 @@ def build_plan(connection: psycopg.Connection[Any]) -> dict[str, Any]:
     return {
         "version": PLAN_VERSION,
         "generated_at": now.isoformat(),
+        "grace_window_minutes": int(GRACE_WINDOW.total_seconds() // 60),
+        "eligible_before": (now - GRACE_WINDOW).isoformat(),
         "bucket": "resumes",
         "dry_run": True,
         "orphan_objects": orphan_objects,
@@ -124,8 +149,8 @@ def print_plan(plan: dict[str, Any]) -> None:
     print(json.dumps(plan, indent=2, sort_keys=True))
 
 
-def object_is_still_orphan(
-    connection: psycopg.Connection[Any], object_path: str
+def object_is_still_deletable(
+    connection: psycopg.Connection[Any], item: dict[str, Any]
 ) -> bool:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -134,7 +159,13 @@ def object_is_still_orphan(
                 select 1
                   from storage.objects as o
                  where o.bucket_id = 'resumes'
+                   and o.id = %s
                    and o.name = %s
+                   and o.created_at = %s
+                   and o.updated_at is not distinct from %s
+                   and md5(coalesce(o.metadata::text, '')) = %s
+                   and o.created_at <=
+                       clock_timestamp() - interval '15 minutes'
             )
             and not exists (
                 select 1
@@ -142,7 +173,14 @@ def object_is_still_orphan(
                  where l.resume_object_path = %s
             )
             """,
-            (object_path, object_path),
+            (
+                item["object_id"],
+                item["path"],
+                item["created_at"],
+                item["updated_at"],
+                item["metadata_fingerprint"],
+                item["path"],
+            ),
         )
         row = cursor.fetchone()
         return bool(row and row[0])
@@ -175,6 +213,8 @@ def load_plan(path: pathlib.Path) -> dict[str, Any]:
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan.get("version") != PLAN_VERSION or plan.get("bucket") != "resumes":
         raise SystemExit("Plan version or bucket is not supported.")
+    if plan.get("grace_window_minutes") != 15:
+        raise SystemExit("Plan does not contain the required 15-minute grace window.")
 
     generated_at = dt.datetime.fromisoformat(plan["generated_at"])
     if generated_at.tzinfo is None:
@@ -198,7 +238,7 @@ def apply_plan(plan: dict[str, Any]) -> int:
     with connect() as connection:
         for item in plan.get("orphan_objects", []):
             object_path = item["path"]
-            if not object_is_still_orphan(connection, object_path):
+            if not object_is_still_deletable(connection, item):
                 skipped += 1
                 continue
             delete_via_storage_api(base_url, service_key, object_path)
@@ -214,6 +254,11 @@ def main() -> int:
         if args.confirm != CONFIRMATION:
             raise SystemExit(
                 f"Applying requires --confirm {CONFIRMATION} after reviewing the plan."
+            )
+        if args.confirm_submissions_quiesced != QUIESCENCE_CONFIRMATION:
+            raise SystemExit(
+                "Applying requires --confirm-submissions-quiesced "
+                f"{QUIESCENCE_CONFIRMATION}."
             )
         return apply_plan(load_plan(args.apply_plan))
 

@@ -136,7 +136,7 @@ create table public.leads (
             )
         ),
     constraint leads_byte_size_in_range
-        check (byte_size >= 0 and byte_size <= 10485760),
+        check (byte_size between 1 and 10485760),
     constraint leads_status_valid
         check (status in ('PENDING', 'REACHED_OUT')),
     constraint leads_reached_out_audit_coherent
@@ -313,9 +313,14 @@ create table public.email_delivery_attempts (
         ),
     constraint email_delivery_attempts_reviewer_coherent
         check (
-            (reviewer_user_id is null and reviewer_email is null)
+            (
+                trigger_kind = 'initial'
+                and reviewer_user_id is null
+                and reviewer_email is null
+            )
             or (
-                reviewer_user_id is not null
+                trigger_kind = 'manual'
+                and reviewer_user_id is not null
                 and reviewer_email is not null
                 and reviewer_email = lower(btrim(reviewer_email))
                 and char_length(reviewer_email) between 3 and 320

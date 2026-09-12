@@ -15,7 +15,6 @@ insert into storage.buckets (id, name, public)
 values ('policy-smoke-unrelated', 'policy-smoke-unrelated', false);
 insert into storage.objects (bucket_id, name)
 values ('policy-smoke-unrelated', 'visible-marker.pdf');
-grant usage on schema storage to anon;
 grant select on storage.objects to anon;
 create policy policy_smoke_unrelated_object_read
 on storage.objects
@@ -288,6 +287,8 @@ declare
     v_attempt_count integer;
     v_status text;
     v_outcome text;
+    v_expired_claimed_at timestamptz :=
+        clock_timestamp() - interval '10 minutes';
     v_historical_at timestamptz := clock_timestamp() - interval '2 minutes';
 begin
     set local role alma_api;
@@ -373,9 +374,9 @@ begin
 
     reset role;
     update public.email_deliveries
-       set claimed_at = clock_timestamp() - interval '10 minutes',
-           claim_expires_at = clock_timestamp() - interval '5 minutes',
-           last_attempt_at = clock_timestamp() - interval '10 minutes'
+       set claimed_at = v_expired_claimed_at,
+           claim_expires_at = v_expired_claimed_at + interval '5 minutes',
+           last_attempt_at = v_expired_claimed_at
      where id = v_prospect_delivery_id;
     set local role alma_api;
 

@@ -1,6 +1,12 @@
 -- Transaction boundaries used by the SQLAlchemy API. These routines own all
 -- application writes so the runtime role never needs direct table mutation.
 
+-- PostgreSQL grants EXECUTE on new functions to PUBLIC by default. Change the
+-- creator's default before any SECURITY DEFINER routine exists so there is no
+-- exposure window between this migration and the explicit grants migration.
+alter default privileges in schema public
+    revoke execute on functions from public;
+
 create or replace function public._reserve_email_budget(
     p_reservation_key uuid,
     p_reservation_kind text
@@ -441,10 +447,20 @@ begin
         );
     end if;
 
-    if (p_reviewer_user_id is null) <> (p_reviewer_email is null) then
+    if p_trigger_kind = 'initial'
+       and (p_reviewer_user_id is not null or p_reviewer_email is not null)
+    then
+        raise exception using
+            errcode = '22023',
+            message = 'initial attempts cannot include reviewer attribution';
+    end if;
+
+    if p_trigger_kind = 'manual'
+       and (p_reviewer_user_id is null or p_reviewer_email is null)
+    then
         raise exception using
             errcode = '22004',
-            message = 'reviewer ID and email must both be present or both be absent';
+            message = 'manual attempts require reviewer ID and email';
     end if;
 
     if p_trigger_kind = 'initial' then
@@ -871,10 +887,10 @@ comment on function public.create_lead_with_deliveries(
 comment on function public.claim_email_delivery(
     uuid, uuid, text, uuid, text, boolean
 ) is
-    'Returns claimed, existing_attempt, duplicate_confirmation_required, cooldown, or retry_limit_exhausted JSON. 55P03 means active lease; 55000 means invalid state/cooldown; 54000 means retry cap; P0002 means missing delivery; 23505 means reused attempt ID.';
+    'Returns claimed, existing_attempt, duplicate_confirmation_required, cooldown, or retry_limit_exhausted JSON. 22004/22023 identify invalid required/initial reviewer attribution; 55P03 means active lease; 55000 means invalid state/cooldown; 54000 means retry cap; P0002 means missing delivery; 23505 means reused attempt ID.';
 comment on function public.complete_email_delivery_attempt(
     uuid, uuid, text, integer, text, text
 ) is
     'Returns completed, already_completed, or stale_claim JSON. 22004 means missing identity; 22023 means invalid outcome; P0002 means missing attempt.';
 comment on function public.expire_email_delivery_claim(uuid) is
-    'Returns expired_to_unknown, active_lease, or not_processing JSON. P0002 means missing delivery; 55000 means inconsistent active claim identity.';
+    'Separate-transaction recovery boundary returning durable expired_to_unknown, active_lease, or not_processing JSON. Later unknown claims require duplicate-risk confirmation and cooldown. P0002 means missing delivery; 55000 means inconsistent active claim identity.';

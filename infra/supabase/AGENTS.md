@@ -23,12 +23,16 @@ files as the only schema source.
 - Keep transaction-sensitive behavior in small database functions that
   SQLAlchemy can call explicitly. Qualify object names and pin
   `search_path` on security-definer functions.
+- Revoke default function execution from `PUBLIC` before creating any
+  security-definer function, then grant only approved signatures later.
 - Store instants as `timestamptz`. Daily budget dates are calculated in UTC.
 - Resume object paths are caller-generated UUID v4 keys under
   `leads/{lead_id}/`; never derive them from the original filename.
 - Manual retries use a one-minute cooldown. Unknown outcomes require explicit
   duplicate-risk confirmation, and retry budget is reserved only while the
   manual attempt is created.
+- Initial attempts have no reviewer attribution. Manual attempts require both
+  reviewer ID and normalized reviewer email.
 - Do not add real people, resumés, credentials, provider IDs, or production
   object paths to migrations or `seed.sql`.
 
@@ -48,6 +52,9 @@ them independent of storage objects and external services.
 
 - Scripts are admin tools. Default to a read-only plan or dry run.
 - Require an explicit confirmation token for destructive actions.
+- Storage purge plans exclude objects newer than 15 minutes. Applying a plan
+  also requires an explicit confirmation that submissions are quiesced and
+  must recheck object identity, age, changes, and lead references.
 - Read passwords and service keys from protected prompts or environment
   variables. Never print, log, write, or add them to command arguments.
 - Refuse production-looking targets when an operation is intended only for
