@@ -64,6 +64,38 @@ describe("public lead intake", () => {
     ).toBeVisible();
   });
 
+  it("includes optional comments when the submitter adds them", async () => {
+    const user = userEvent.setup();
+    const uploader = vi.fn().mockResolvedValue(undefined);
+    render(<LeadForm uploader={uploader} />);
+
+    await user.type(screen.getByLabelText("First name"), "Ada");
+    await user.type(screen.getByLabelText("Last name"), "Lovelace");
+    await user.type(screen.getByLabelText("Email"), "ada@example.test");
+    await user.type(
+      screen.getByRole("textbox", { name: /comments/i }),
+      "Please review visa timing.",
+    );
+    await user.upload(
+      screen.getByLabelText(/resume or CV/i),
+      new File(["synthetic"], "synthetic.pdf", { type: "application/pdf" }),
+    );
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(
+      screen.getByRole("button", { name: /submit synthetic lead/i }),
+    );
+
+    await waitFor(() => expect(uploader).toHaveBeenCalledOnce());
+    expect(uploader.mock.calls[0][0]).toEqual({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.test",
+      resume: expect.any(File),
+      syntheticDataAcknowledged: true,
+      comments: "Please review visa timing.",
+    });
+  });
+
   it("shows mapped API errors and returns the required status copy", async () => {
     const user = userEvent.setup();
     const uploader = vi

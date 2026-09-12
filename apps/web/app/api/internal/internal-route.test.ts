@@ -55,6 +55,42 @@ describe("internal route security", () => {
     expect(fetchProtectedApi).not.toHaveBeenCalled();
   });
 
+  it("allows local loopback origin and host aliases", async () => {
+    process.env.APP_URL = "http://127.0.0.1:3000";
+    const nonce = "csrf-session-nonce";
+    const token = createCsrfToken("reviewer-1", nonce);
+    const request = new NextRequest(
+      "http://localhost:3000/api/internal/leads/search",
+      {
+        method: "POST",
+        headers: {
+          host: "localhost:3000",
+          origin: "http://localhost:3000",
+          cookie: "alma-csrf=csrf-session-nonce",
+          "x-csrf-token": token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          q: null,
+          status: null,
+          cursor: null,
+          limit: 20,
+        }),
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ path: ["leads", "search"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchProtectedApi).toHaveBeenCalledWith(
+      "/api/v1/leads/search",
+      "access-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("rejects a same-origin mutation without the session CSRF token", async () => {
     const request = new NextRequest(
       "https://portal.example.test/api/internal/leads/lead-1/status",

@@ -18,6 +18,9 @@ export class AlmaApiClient {
           [contract.fields.lastName]: prospect.lastName,
           [contract.fields.email]: prospect.email,
           [contract.fields.acknowledged]: String(prospect.acknowledged),
+          ...(prospect.comments
+            ? { [contract.fields.comments]: prospect.comments }
+            : {}),
           [contract.fields.cv]: {
             name: prospect.cv.name,
             mimeType: prospect.cv.mimeType,

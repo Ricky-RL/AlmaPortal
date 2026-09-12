@@ -67,8 +67,9 @@ See [docs/system-design.md](docs/system-design.md) for the full design.
 
 Public routes:
 
-- `POST /api/v1/leads` accepts exactly `first_name`, `last_name`, `email`,
-  `synthetic_data_acknowledged`, and one `resume` multipart file.
+- `POST /api/v1/leads` accepts `first_name`, `last_name`, `email`,
+  `synthetic_data_acknowledged`, one `resume` multipart file, and optional
+  `comments`.
 - `GET /health/live`, `GET /health/ready`, and `GET /version` support platform
   checks and exact commit verification.
 

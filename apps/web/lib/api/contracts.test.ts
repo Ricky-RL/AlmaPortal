@@ -11,6 +11,7 @@ describe("FastAPI contract normalization", () => {
       first_name: "Ada",
       last_name: "Lovelace",
       email: "ada@example.test",
+      comments: "Please review visa timing.",
       resume_filename: "synthetic.pdf",
       resume_media_type: "application/pdf",
       resume_size_bytes: 1024,
@@ -78,6 +79,7 @@ describe("FastAPI contract normalization", () => {
     });
 
     expect(lead.resumeName).toBe("synthetic.pdf");
+    expect(lead.comments).toBe("Please review visa timing.");
     expect(lead.resumeSizeBytes).toBe(1024);
     expect(lead.deliveries.prospect).toMatchObject({
       id: "delivery-1",

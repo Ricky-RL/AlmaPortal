@@ -197,8 +197,18 @@ async def test_submit_reserves_before_upload_then_calls_create_function() -> Non
         composer=EmailComposer(NormalizedEmail.parse("attorney@example.com")),
         clock=FixedClock(),
     )
-    lead = await use_case(SubmitLeadCommand("Ada", "Lovelace", "ada@example.com", True, resume()))
+    lead = await use_case(
+        SubmitLeadCommand(
+            "Ada",
+            "Lovelace",
+            "ada@example.com",
+            True,
+            resume(),
+            comments="  Please review visa timing.  ",
+        )
+    )
     assert events[:3] == ["reserve", "upload", "create"]
+    assert lead.comments == "Please review visa timing."
     assert budgets.reservation_key == lead.id
     assert lead.resume.original_filename == "My_Resume.pdf"
     assert lead.resume.object_key.startswith(f"leads/{lead.id}/")
@@ -354,3 +364,24 @@ def make_delivery(kind: DeliveryKind) -> Delivery:
         created_at=NOW - timedelta(seconds=1),
         updated_at=NOW,
     )
+
+
+def test_attorney_notification_includes_optional_comments() -> None:
+    lead = make_lead(1)
+    commented = Lead(
+        id=lead.id,
+        first_name=lead.first_name,
+        last_name=lead.last_name,
+        email=lead.email,
+        resume=lead.resume,
+        status=lead.status,
+        created_at=lead.created_at,
+        updated_at=lead.updated_at,
+        comments="Please review visa timing.",
+    )
+    composer = EmailComposer(NormalizedEmail.parse("attorney@example.com"))
+    message = composer.compose(DeliveryKind.ATTORNEY, commented)
+    assert "Please review visa timing." in message.plain_body
+    assert "Please review visa timing." in message.html_body
+    omitted = composer.compose(DeliveryKind.ATTORNEY, lead)
+    assert "Additional comments" not in omitted.plain_body
