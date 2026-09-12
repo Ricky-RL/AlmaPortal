@@ -84,6 +84,11 @@ db-check:
 	$(SUPABASE) test db --workdir $(SUPABASE_WORKDIR)
 
 supabase-start:
+	@set -eu; \
+	if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+	export GOOGLE_CLIENT_ID="$${GOOGLE_CLIENT_ID:-replace-with-google-client-id}"; \
+	export GOOGLE_CLIENT_SECRET="$${GOOGLE_CLIENT_SECRET:-replace-with-google-client-secret}"; \
+	export GOOGLE_REDIRECT_URI="$${GOOGLE_REDIRECT_URI:-http://127.0.0.1:54321/auth/v1/callback}"; \
 	$(SUPABASE) start --workdir $(SUPABASE_WORKDIR)
 
 supabase-stop:
