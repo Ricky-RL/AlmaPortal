@@ -24,6 +24,31 @@ test.describe("dashboard authentication", () => {
       .toBe(true);
   });
 
+  test("lets a reviewer sign out and return to sign in", async ({
+    dashboard,
+  }) => {
+    await dashboard.open();
+    await expect(dashboard.signOutButton()).toBeVisible();
+
+    await dashboard.signOutButton().click();
+
+    await expect(signInSurface(dashboard.page)).toBeVisible();
+    await expect
+      .poll(() => new URL(dashboard.page.url()).pathname)
+      .toBe(contract.paths.login);
+
+    await dashboard.open();
+    await expect
+      .poll(async () => {
+        const path = new URL(dashboard.page.url()).pathname;
+        return (
+          path === contract.paths.login ||
+          (await signInSurface(dashboard.page).isVisible())
+        );
+      })
+      .toBe(true);
+  });
+
   test("handles an expired browser session by returning to sign in", async ({
     authenticatedPage,
   }) => {

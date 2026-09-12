@@ -36,6 +36,10 @@ export class DashboardPage {
     this.nextPage = page.getByRole("button", { name: "Next" });
   }
 
+  signOutButton(): Locator {
+    return this.navigation.getByRole("button", { name: "Sign out" });
+  }
+
   async open(): Promise<void> {
     await this.page.goto(contract.paths.dashboard);
   }
