@@ -7,6 +7,7 @@ export type PublicLeadPayload = {
   email: string;
   resume: File;
   syntheticDataAcknowledged: true;
+  comments?: string;
 };
 
 export class UploadError extends Error {
@@ -83,6 +84,9 @@ export const uploadPublicLead: PublicUploader = (payload, onProgress) =>
     body.set("email", payload.email);
     body.set("resume", payload.resume);
     body.set("synthetic_data_acknowledged", "true");
+    if (payload.comments) {
+      body.set("comments", payload.comments);
+    }
 
     const request = new XMLHttpRequest();
     request.open("POST", endpoint);

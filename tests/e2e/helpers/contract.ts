@@ -58,6 +58,7 @@ export const contract = {
       "synthetic_data_acknowledged",
     ),
     cv: env("E2E_FIELD_CV", "resume"),
+    comments: env("E2E_FIELD_COMMENTS", "comments"),
   },
   data: {
     leadsTable: env("E2E_LEADS_TABLE", "leads"),

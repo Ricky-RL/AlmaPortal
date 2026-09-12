@@ -10,6 +10,7 @@ import pytest
 
 from alma_api.documents import MAX_DOCX_ENTRIES, MAX_RESUME_BYTES, validate_resume
 from alma_api.domain import (
+    COMMENTS_MAX_LENGTH,
     AuthenticatedReviewer,
     Delivery,
     DeliveryKind,
@@ -21,6 +22,7 @@ from alma_api.domain import (
     PersonName,
     ResumeFormat,
     ResumeMetadata,
+    parse_optional_comments,
     resume_format_from_media_type,
 )
 
@@ -92,6 +94,19 @@ def test_names_and_email_are_trimmed_normalized_and_bounded() -> None:
         PersonName.parse("bad\x00name", "first_name")
     with pytest.raises(DomainError):
         NormalizedEmail.parse("not-an-address")
+
+
+def test_optional_comments_are_trimmed_bounded_and_reject_controls() -> None:
+    assert parse_optional_comments(None) is None
+    assert parse_optional_comments("   ") is None
+    assert parse_optional_comments("  Please review visa timing.  ") == (
+        "Please review visa timing."
+    )
+    assert parse_optional_comments("Line one\nLine two") == "Line one\nLine two"
+    with pytest.raises(DomainError, match="at most"):
+        parse_optional_comments("x" * (COMMENTS_MAX_LENGTH + 1))
+    with pytest.raises(DomainError, match="unsupported"):
+        parse_optional_comments("bad\x00comment")
 
 
 def test_canonical_delivery_values_and_mime_derived_format() -> None:

@@ -79,9 +79,19 @@ def test_runtime_role_is_select_and_execute_only() -> None:
     assert "grant delete" not in grants
 
 
+def test_optional_lead_comments_are_migrated() -> None:
+    comments = migration("20260912170300_lead_comments.sql")
+    assert "add column comments varchar(2000)" in comments
+    assert "leads_comments_bounded" in comments
+    assert "p_comments text default null" in comments
+    assert "grant execute on function public.create_lead_with_deliveries(" in comments
+    assert "uuid, text, text, text, text, text, text, bigint, text, text, text" in comments
+
+
 def test_api_write_side_contains_function_calls_not_orm_mutations() -> None:
     source = inspect.getsource(persistence)
     assert "p_resume_object_path => :resume_object_path" in source
+    assert "p_comments => :comments" in source
     assert "reserve_new_lead_email_budget" in source
     assert "expire_email_delivery_claim" in source
     assert "complete_email_delivery_attempt" in source

@@ -197,6 +197,7 @@ Stores the normalized lead and resume metadata:
 
 - `id`
 - bounded `first_name`, `last_name`, and `normalized_email`
+- optional `comments`, stored as null when omitted or blank
 - private `resume_object_path`, sanitized `original_filename`,
   `detected_media_type`, and `byte_size`
 - `status`, constrained to `PENDING` or `REACHED_OUT`
@@ -288,7 +289,8 @@ database text, object keys, or raw SendGrid bodies.
 
 - Accepts `multipart/form-data`.
 - Fields are `first_name`, `last_name`, `email`,
-  `synthetic_data_acknowledged`, and `resume`.
+  `synthetic_data_acknowledged`, `resume`, and optional `comments` (at most
+  2,000 characters).
 - Accepts one signature-validated PDF, DOC, or DOCX up to 10 MiB.
 - Returns `201` after the lead and resume are durable. Initial delivery states
   are visible through the protected lead resource.
