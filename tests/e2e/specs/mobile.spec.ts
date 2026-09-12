@@ -30,6 +30,7 @@ test.describe("@mobile responsive critical paths", () => {
     expect(dashboard.page.viewportSize()?.width).toBeLessThanOrEqual(600);
     await expect(dashboard.main).toBeVisible();
     await expect(dashboard.navigation).toBeVisible();
+    await expect(dashboard.signOutButton()).toBeVisible();
     await expect(dashboard.heading).toBeVisible();
     await expect(dashboard.lead(prospect)).toBeVisible();
   });
