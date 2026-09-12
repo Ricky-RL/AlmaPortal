@@ -15,6 +15,14 @@ describe("public lead intake", () => {
     expect(screen.getByText(/real PII and real CVs must not be used/i)).toBeVisible();
   });
 
+  it("hides the resume file input without a full-width layout class", () => {
+    render(<LeadForm uploader={vi.fn()} />);
+    const resumeInput = screen.getByLabelText(/resume or CV/i);
+    expect(resumeInput).toHaveAttribute("type", "file");
+    expect(resumeInput).toHaveClass("sr-only");
+    expect(resumeInput).not.toHaveClass("w-full");
+  });
+
   it("reports accessible validation errors", async () => {
     const user = userEvent.setup();
     render(<LeadForm uploader={vi.fn()} />);

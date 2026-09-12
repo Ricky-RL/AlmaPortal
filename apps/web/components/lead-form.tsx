@@ -217,7 +217,7 @@ export function LeadForm({
           <FieldError id="comments-error" message={errors.comments?.message} />
         </div>
 
-        <div className="mt-5">
+        <div className="relative mt-5">
           <input
             id="resume"
             className="peer sr-only"
