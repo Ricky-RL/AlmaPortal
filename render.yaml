@@ -1,0 +1,68 @@
+services:
+  - type: web
+    name: almaportal-api
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: .
+    autoDeploy: false
+    buildCommand: >-
+      pip install --disable-pip-version-check uv==0.6.5
+      && uv sync --frozen --package alma-api --no-dev
+    startCommand: >-
+      uv run --no-sync --package alma-api
+      uvicorn alma_api.main:create_app
+      --factory
+      --host 0.0.0.0
+      --port $PORT
+      --workers 1
+    healthCheckPath: /health/ready
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: ENVIRONMENT
+        value: production
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: UV_LINK_MODE
+        value: copy
+      - key: SUPABASE_STORAGE_BUCKET
+        value: resumes
+      - key: SENDGRID_BASE_URL
+        value: https://api.sendgrid.com
+      - key: JWT_ALGORITHMS
+        value: RS256,ES256
+      - key: OVERALL_BODY_CAP_BYTES
+        value: "12582912"
+      - key: PUBLIC_RATE_LIMIT
+        value: "5"
+      - key: PUBLIC_RATE_WINDOW_SECONDS
+        value: "900"
+      - key: PROVIDER_TIMEOUT_SECONDS
+        value: "5"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_ISSUER
+        sync: false
+      - key: SUPABASE_JWKS_URL
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: ATTORNEY_NOTIFICATION_EMAIL
+        sync: false
+      - key: TICKET_SIGNING_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: TRUSTED_PROXY_CIDRS
+        sync: false
