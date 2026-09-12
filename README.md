@@ -280,20 +280,69 @@ to receive the test.
 
 ## Google OAuth setup
 
-1. In Google Cloud Console, configure the OAuth consent screen and create a Web
-   application OAuth client.
-2. Add the deployed web origin and `http://127.0.0.1:3000` as authorized
-   JavaScript origins.
-3. Add
-   `https://<supabase-project-ref>.supabase.co/auth/v1/callback` as an
-   authorized redirect URI. Use the callback shown by Supabase if it differs.
-4. In Supabase Dashboard, enable the Google provider and store the Google
-   client ID and client secret there.
-5. Set the Supabase Site URL to the deployed Vercel origin. Add
-   `http://127.0.0.1:3000/auth/callback` and the deployed callback path to the
-   allowed redirect URLs.
-6. Put only the Supabase URL and anon key in the web environment. Keep the
-   Google client secret in Supabase.
+Local reviewer sign-in uses Google through local Supabase Auth. A 400 before
+Google's account picker usually means the Google provider is off or the
+redirect URI in Cloud Console is not the GoTrue callback.
+
+### Google Cloud Console
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and select or
+   create a project.
+2. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview).
+   If it asks you to configure the consent screen first, choose External
+   audience, set an app name such as AlmaPortal, and use your Google account as
+   the support email. Add the `openid`, `.../auth/userinfo.email`, and
+   `.../auth/userinfo.profile` scopes.
+3. If the app stays in Testing, add your Google account under Test users.
+   Publishing the app is only required when people outside that list must sign
+   in.
+4. Create a client: Clients, Create client, application type Web application.
+5. Authorized JavaScript origins, local:
+   - `http://127.0.0.1:3000`
+   - `http://localhost:3000`
+
+   Google treats those hosts as different origins. Add both.
+
+6. Authorized redirect URIs, local. This must be the Supabase Auth callback,
+   not the Next.js route:
+   - `http://127.0.0.1:54321/auth/v1/callback`
+
+   Do not put `http://127.0.0.1:3000/auth/callback` here. That mismatch is the
+   usual Google 400 (`redirect_uri_mismatch`).
+
+7. Create the client and copy the client ID and client secret.
+
+### Local Supabase
+
+1. Copy `.env.example` to ignored `.env` if you have not already.
+2. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and keep
+   `GOOGLE_REDIRECT_URI=http://127.0.0.1:54321/auth/v1/callback`.
+3. Recreate the local Auth container so it picks up the provider settings.
+   Use a normal CLI stop, not `make supabase-stop`, because that Make target
+   drops local data:
+
+   ```bash
+   supabase stop --workdir infra
+   make supabase-start
+   ```
+
+4. Sign in at `http://127.0.0.1:3000/login`. Use that host consistently with
+   the origin you added in Cloud Console.
+
+The browser never receives the Google client secret. Local GoTrue holds it.
+
+### Hosted project
+
+1. Add the Vercel origin as an authorized JavaScript origin.
+2. Add `https://<supabase-project-ref>.supabase.co/auth/v1/callback` as an
+   authorized redirect URI. Use the callback shown on the Supabase Google
+   provider page if it differs.
+3. In the Supabase Dashboard, enable Google and store the same client ID and
+   client secret.
+4. Set Site URL to the deployed Vercel origin. Add
+   `http://127.0.0.1:3000/auth/callback` and the deployed
+   `https://<vercel-host>/auth/callback` path to the allowed redirect URLs.
+5. Put only the Supabase URL and anon key in the web environment.
 
 For the hosted assessment, do not add a Google domain restriction or reviewer
 allowlist. This open Google authentication is a deliberate reviewer-access

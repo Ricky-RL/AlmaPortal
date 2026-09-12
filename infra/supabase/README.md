@@ -10,9 +10,10 @@ supabase --workdir infra db reset --local
 infra/supabase/scripts/policy_smoke.sh
 ```
 
-Local auth signup, external OAuth, outbound mail, analytics, and Edge Runtime
-are disabled. The private `resumes` bucket accepts PDF, DOC, and DOCX objects
-up to 10 MiB.
+Email and phone signup, outbound mail, analytics, and Edge Runtime are
+disabled. Google OAuth is enabled for local reviewer sign-in when
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are present. The private
+`resumes` bucket accepts PDF, DOC, and DOCX objects up to 10 MiB.
 
 ## API transaction flow
 
