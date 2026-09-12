@@ -32,9 +32,9 @@ help:
 		'unit                   Run API and web unit tests' \
 		'test-api               Run API tests' \
 		'test-web               Run web tests' \
-		'test-e2e               Run Playwright tests' \
+		'test-e2e               Run optional Playwright tests manually' \
 		'test                   Run API and web unit tests' \
-		'test-integration       Run database and Playwright tests' \
+		'test-integration       Run database checks and optional Playwright tests' \
 		'supabase-start         Start local Supabase' \
 		'supabase-stop          Stop local Supabase' \
 		'supabase-reset         Rebuild the local database from migrations' \
@@ -108,7 +108,8 @@ db-runtime-credentials:
 	publishable_key=$${PUBLISHABLE_KEY:-$${ANON_KEY:-}}; \
 	secret_key=$${SECRET_KEY:-$${SERVICE_ROLE_KEY:-}}; \
 	test -n "$${API_URL:-}" && test -n "$$publishable_key" && \
-		test -n "$$secret_key" && test -n "$${DB_URL:-}"; \
+		test -n "$$secret_key" && test -n "$${DB_URL:-}" && \
+		test -n "$${JWT_SECRET:-}"; \
 	password=$${ALMA_API_PASSWORD:-$$($(UV) run --project $(API_DIR) python -c "import secrets; print(secrets.token_urlsafe(32))")}; \
 	ALMA_API_PASSWORD="$$password" SUPABASE_DB_ADMIN_URL="$$DB_URL" \
 		$(UV) run --project $(API_DIR) python $(SUPABASE_SCRIPTS)/bootstrap_api_role.py; \
@@ -126,6 +127,7 @@ db-runtime-credentials:
 		printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$$secret_key"; \
 		printf 'E2E_SUPABASE_SERVICE_ROLE_KEY=%s\n' "$$secret_key"; \
 		printf 'SUPABASE_STORAGE_BUCKET=%s\n' "$(STORAGE_BUCKET)"; \
+		printf 'SUPABASE_JWT_SECRET=%s\n' "$$JWT_SECRET"; \
 		printf 'DATABASE_URL=%s\n' "$$database_url"; \
 	} > "$(RUNTIME_ENV)"; \
 	chmod 0600 "$(RUNTIME_ENV)"; \
@@ -164,4 +166,4 @@ build:
 	$(PNPM) run build
 	cd $(API_DIR) && $(UV) run python -m compileall -q src
 
-ci: lint typecheck test test-integration build
+ci: lint typecheck test db-check build

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -19,6 +20,11 @@ class AuthenticationError(ApplicationError):
     code = "authentication_failed"
 
 
+class JwtVerificationMode(StrEnum):
+    ASYMMETRIC = "asymmetric"
+    LOCAL_HS256 = "local_hs256"
+
+
 class SupabaseJwtVerifier:
     def __init__(
         self,
@@ -27,6 +33,8 @@ class SupabaseJwtVerifier:
         jwks_url: str,
         algorithms: tuple[str, ...],
         client: httpx.AsyncClient,
+        mode: JwtVerificationMode = JwtVerificationMode.ASYMMETRIC,
+        shared_secret: str | None = None,
         cache_ttl_seconds: int = 300,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -34,11 +42,20 @@ class SupabaseJwtVerifier:
         self._jwks_url = jwks_url
         self._algorithms = algorithms
         self._client = client
+        self._mode = mode
+        self._shared_secret = shared_secret
         self._default_ttl = cache_ttl_seconds
         self._monotonic = monotonic
         self._keys: dict[str, Any] = {}
         self._expires_at = 0.0
         self._lock = asyncio.Lock()
+        if mode is JwtVerificationMode.LOCAL_HS256:
+            if algorithms != ("HS256",) or shared_secret is None:
+                raise ValueError("local HS256 mode requires exactly HS256 and a shared secret")
+            if len(shared_secret.encode()) < 32:
+                raise ValueError("local HS256 shared secret must contain at least 32 bytes")
+        elif "HS256" in algorithms or shared_secret is not None:
+            raise ValueError("asymmetric mode cannot use HS256 or a shared secret")
 
     async def verify(self, token: str) -> AuthenticatedReviewer:
         if len(token) > 16_384:
@@ -47,9 +64,16 @@ class SupabaseJwtVerifier:
             header = jwt.get_unverified_header(token)
             algorithm = header.get("alg")
             kid = header.get("kid")
-            if algorithm not in self._algorithms or not isinstance(kid, str) or not kid:
+            if algorithm not in self._algorithms:
                 raise AuthenticationError("access token header is not allowed")
-            key = await self._key_for(kid)
+            if self._mode is JwtVerificationMode.LOCAL_HS256:
+                if self._shared_secret is None:
+                    raise AuthenticationError("JWT verifier configuration is invalid")
+                key = self._shared_secret
+            else:
+                if not isinstance(kid, str) or not kid:
+                    raise AuthenticationError("access token header is not allowed")
+                key = await self._key_for(kid)
             claims = jwt.decode(
                 token,
                 key=key,

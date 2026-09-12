@@ -15,6 +15,7 @@ Runtime configuration is supplied through environment variables:
 - `DATABASE_URL`
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_STORAGE_BUCKET`
 - `SUPABASE_JWT_ISSUER`, `SUPABASE_JWKS_URL`, `JWT_ALGORITHMS`
+- `SUPABASE_JWT_SECRET` only for local Supabase CLI HS256 tokens
 - `SENDGRID_API_KEY`, `SENDGRID_BASE_URL`, `SENDGRID_FROM_EMAIL`
 - `ATTORNEY_NOTIFICATION_EMAIL`, `PUBLIC_API_URL`
 - `TICKET_SIGNING_SECRET`, at least 32 bytes
@@ -24,6 +25,13 @@ Runtime configuration is supplied through environment variables:
 
 `WEB_CONCURRENCY` must be `1` because the pre-parse public submission limiter
 is process-local.
+
+Production JWT verification accepts asymmetric algorithms only. A local
+Supabase CLI instance can use `JWT_ALGORITHMS=HS256` with
+`SUPABASE_JWT_SECRET` set to its JWT secret. This mode requires a secret of at
+least 32 bytes, a loopback `SUPABASE_URL`, and a non-production environment.
+It never calls JWKS, but applies the same issuer, audience, expiry, role,
+non-anonymous, email, and signed Google provider checks as asymmetric tokens.
 
 ## Database contract
 

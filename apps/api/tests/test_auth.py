@@ -9,9 +9,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from alma_api.auth import AuthenticationError, SupabaseJwtVerifier
+from alma_api.auth import AuthenticationError, JwtVerificationMode, SupabaseJwtVerifier
 
 ISSUER = "https://project.supabase.co/auth/v1"
+LOCAL_ISSUER = "http://127.0.0.1:54321/auth/v1"
+LOCAL_SECRET = "local-supabase-jwt-secret-at-least-32-bytes"
 
 
 def key_pair(kid: str) -> tuple[Any, dict[str, Any]]:
@@ -121,6 +123,70 @@ async def test_symmetric_algorithm_is_rejected_before_key_use() -> None:
             jwks_url=f"{ISSUER}/.well-known/jwks.json",
             algorithms=("RS256",),
             client=client,
+        )
+        with pytest.raises(AuthenticationError):
+            await verifier.verify(token)
+
+
+@pytest.mark.asyncio
+async def test_local_hs256_verifies_genuine_shaped_supabase_token_without_kid() -> None:
+    transport = httpx.MockTransport(lambda _: pytest.fail("JWKS should not be fetched"))
+    token = jwt.encode(
+        claims(iss=LOCAL_ISSUER),
+        LOCAL_SECRET,
+        algorithm="HS256",
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=LOCAL_ISSUER,
+            jwks_url=f"{LOCAL_ISSUER}/.well-known/jwks.json",
+            algorithms=("HS256",),
+            client=client,
+            mode=JwtVerificationMode.LOCAL_HS256,
+            shared_secret=LOCAL_SECRET,
+        )
+        current = await verifier.verify(token)
+    assert current.email.value == "reviewer@example.com"
+
+
+@pytest.mark.asyncio
+async def test_local_hs256_rejects_wrong_secret() -> None:
+    token = jwt.encode(
+        claims(iss=LOCAL_ISSUER),
+        "a-different-local-secret-that-is-long-enough",
+        algorithm="HS256",
+    )
+    async with httpx.AsyncClient() as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=LOCAL_ISSUER,
+            jwks_url=f"{LOCAL_ISSUER}/.well-known/jwks.json",
+            algorithms=("HS256",),
+            client=client,
+            mode=JwtVerificationMode.LOCAL_HS256,
+            shared_secret=LOCAL_SECRET,
+        )
+        with pytest.raises(AuthenticationError):
+            await verifier.verify(token)
+
+
+@pytest.mark.asyncio
+async def test_local_hs256_keeps_google_provider_claim_checks() -> None:
+    token = jwt.encode(
+        claims(
+            iss=LOCAL_ISSUER,
+            app_metadata={"provider": "email", "providers": ["email"]},
+        ),
+        LOCAL_SECRET,
+        algorithm="HS256",
+    )
+    async with httpx.AsyncClient() as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=LOCAL_ISSUER,
+            jwks_url=f"{LOCAL_ISSUER}/.well-known/jwks.json",
+            algorithms=("HS256",),
+            client=client,
+            mode=JwtVerificationMode.LOCAL_HS256,
+            shared_secret=LOCAL_SECRET,
         )
         with pytest.raises(AuthenticationError):
             await verifier.verify(token)

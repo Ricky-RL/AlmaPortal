@@ -57,3 +57,52 @@ def test_public_api_url_rejects_paths_credentials_and_insecure_remote_hosts() ->
     ):
         with pytest.raises(ValidationError):
             Settings(**settings_values(public_api_url=url))
+
+
+def test_local_hs256_requires_non_production_loopback_and_long_secret() -> None:
+    settings = Settings(
+        **settings_values(
+            jwt_algorithms=("HS256",),
+            supabase_jwt_secret="local-supabase-jwt-secret-at-least-32-bytes",
+        )
+    )
+    assert settings.jwt_algorithms == ("HS256",)
+
+    invalid_settings = (
+        {
+            "environment": "production",
+            "cors_origins": ("https://alma.example",),
+            "public_api_url": "https://api.alma.example",
+        },
+        {"supabase_url": "http://192.0.2.10:54321"},
+        {"supabase_jwt_secret": None},
+        {"supabase_jwt_secret": "too-short"},
+    )
+    for changes in invalid_settings:
+        candidate: dict[str, Any] = {
+            "jwt_algorithms": ("HS256",),
+            "supabase_jwt_secret": "local-supabase-jwt-secret-at-least-32-bytes",
+        }
+        candidate.update(changes)
+        with pytest.raises(ValidationError):
+            Settings(**settings_values(**candidate))
+
+
+def test_shared_secret_is_rejected_in_asymmetric_mode() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            **settings_values(
+                jwt_algorithms=("RS256",),
+                supabase_jwt_secret="accidental-shared-secret-that-is-long-enough",
+            )
+        )
+
+
+def test_hs256_cannot_be_combined_with_asymmetric_algorithms() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            **settings_values(
+                jwt_algorithms=("RS256", "HS256"),
+                supabase_jwt_secret="local-supabase-jwt-secret-at-least-32-bytes",
+            )
+        )

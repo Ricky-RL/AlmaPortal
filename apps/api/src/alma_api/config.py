@@ -25,6 +25,7 @@ class Settings(BaseModel):
     supabase_jwt_issuer: str
     supabase_jwks_url: str
     jwt_algorithms: tuple[str, ...] = ("RS256", "ES256")
+    supabase_jwt_secret: SecretStr | None = None
     ticket_signing_secret: SecretStr
     cors_origins: tuple[str, ...]
     trusted_proxy_cidrs: tuple[str, ...] = ()
@@ -62,6 +63,10 @@ class Settings(BaseModel):
     @classmethod
     def validate_algorithms(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         allowed = {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA"}
+        if value == ("HS256",):
+            return value
+        if "HS256" in value:
+            raise ValueError("HS256 cannot be combined with asymmetric JWT algorithms")
         if not value or not set(value).issubset(allowed):
             raise ValueError("JWT algorithms must be an explicit asymmetric allowlist")
         return value
@@ -101,6 +106,19 @@ class Settings(BaseModel):
             environment=self.environment,
             setting="PUBLIC_API_URL",
         )
+        local_hs256 = self.jwt_algorithms == ("HS256",)
+        if local_hs256:
+            if self.environment == "production":
+                raise ValueError("HS256 Supabase JWT verification is forbidden in production")
+            if not is_loopback_host(urlsplit(self.supabase_url).hostname):
+                raise ValueError("HS256 Supabase JWT verification requires a loopback Supabase URL")
+            if (
+                self.supabase_jwt_secret is None
+                or len(self.supabase_jwt_secret.get_secret_value().encode()) < 32
+            ):
+                raise ValueError("SUPABASE_JWT_SECRET must contain at least 32 bytes")
+        elif self.supabase_jwt_secret is not None:
+            raise ValueError("SUPABASE_JWT_SECRET is accepted only for explicit local HS256 mode")
         return self
 
     @classmethod
@@ -122,6 +140,7 @@ class Settings(BaseModel):
                 "SUPABASE_JWKS_URL", f"{supabase_url}/auth/v1/.well-known/jwks.json"
             ),
             jwt_algorithms=csv("JWT_ALGORITHMS", ("RS256", "ES256")),
+            supabase_jwt_secret=optional("SUPABASE_JWT_SECRET"),
             ticket_signing_secret=required("TICKET_SIGNING_SECRET"),
             cors_origins=csv("CORS_ORIGINS"),
             trusted_proxy_cidrs=csv("TRUSTED_PROXY_CIDRS", ()),
@@ -147,6 +166,13 @@ def required(name: str) -> str:
     value = os.getenv(name)
     if value is None or not value.strip():
         raise RuntimeError(f"{name} is required")
+    return value.strip()
+
+
+def optional(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return None
     return value.strip()
 
 
@@ -176,3 +202,16 @@ def validate_service_url(value: str, *, environment: str, setting: str) -> None:
     loopback_hosts = {"localhost", "127.0.0.1", "::1"}
     if environment == "production" or parsed.hostname not in loopback_hosts:
         raise ValueError(f"{setting} permits HTTP only for loopback outside production")
+
+
+def is_loopback_host(hostname: str | None) -> bool:
+    if hostname is None:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        from ipaddress import ip_address
+
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False

@@ -24,7 +24,7 @@ from alma_api.application import (
     SubmitLead,
     TransitionLead,
 )
-from alma_api.auth import SupabaseJwtVerifier
+from alma_api.auth import JwtVerificationMode, SupabaseJwtVerifier
 from alma_api.config import Settings
 from alma_api.domain import NormalizedEmail
 from alma_api.infrastructure import (
@@ -46,6 +46,11 @@ from alma_api.presentation import Services, create_router, install_exception_han
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings.from_env()
+    jwt_mode = (
+        JwtVerificationMode.LOCAL_HS256
+        if resolved.jwt_algorithms == ("HS256",)
+        else JwtVerificationMode.ASYMMETRIC
+    )
     configure_logging(resolved.log_level)
     engine = create_engine(resolved.sqlalchemy_url)
     provider_client = httpx.AsyncClient(
@@ -101,6 +106,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             jwks_url=resolved.supabase_jwks_url,
             algorithms=resolved.jwt_algorithms,
             client=auth_client,
+            mode=jwt_mode,
+            shared_secret=(
+                resolved.supabase_jwt_secret.get_secret_value()
+                if resolved.supabase_jwt_secret is not None
+                else None
+            ),
         ),
         uow_factory=uow_factory,
         public_api_url=resolved.public_api_url,

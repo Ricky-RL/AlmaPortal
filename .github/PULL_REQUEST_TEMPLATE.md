@@ -7,7 +7,6 @@
 - [ ] Python lint, formatting, types, and tests pass
 - [ ] Web lint, types, tests, and build pass
 - [ ] Supabase migrations reset cleanly and policy checks pass
-- [ ] Playwright critical paths pass
 
 ## Security and privacy
 

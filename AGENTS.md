@@ -45,4 +45,4 @@ Run focused checks while working. Before handoff, start local Supabase, reset mi
 make ci
 ```
 
-The full check covers linting, type checking, Python and web unit tests, database policy tests, Playwright journeys, and builds. Stop local services with `make supabase-stop`.
+The full check covers linting, type checking, Python and web unit tests, database policy tests, and builds. Playwright journeys remain optional and manual because their browser download and runtime cost are intentionally excluded from the regular verification loop. Stop local services with `make supabase-stop`.
