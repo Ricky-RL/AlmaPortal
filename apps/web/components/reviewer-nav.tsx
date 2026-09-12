@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { SignOutButton } from "@/components/sign-out-button";
+import { ReviewerAccountMenu } from "@/components/reviewer-account-menu";
 
 export function ReviewerNav({ email }: { email?: string | null }) {
   return (
@@ -14,12 +14,7 @@ export function ReviewerNav({ email }: { email?: string | null }) {
         >
           Lead review
         </Link>
-        <div className="flex min-w-0 items-center gap-3">
-          {email ? (
-            <span className="truncate text-sm text-[var(--muted)]">{email}</span>
-          ) : null}
-          <SignOutButton />
-        </div>
+        <ReviewerAccountMenu email={email} />
       </div>
     </nav>
   );

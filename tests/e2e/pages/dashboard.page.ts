@@ -36,8 +36,22 @@ export class DashboardPage {
     this.nextPage = page.getByRole("button", { name: "Next" });
   }
 
+  accountMenu(): Locator {
+    return this.navigation.getByRole("button", {
+      name: new RegExp(
+        contract.auth.email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        "i",
+      ),
+    });
+  }
+
   signOutButton(): Locator {
-    return this.navigation.getByRole("button", { name: "Sign out" });
+    return this.navigation.getByRole("menuitem", { name: "Sign out" });
+  }
+
+  async signOut(): Promise<void> {
+    await this.accountMenu().click();
+    await this.signOutButton().click();
   }
 
   async open(): Promise<void> {

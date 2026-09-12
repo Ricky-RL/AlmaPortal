@@ -28,9 +28,10 @@ test.describe("dashboard authentication", () => {
     dashboard,
   }) => {
     await dashboard.open();
-    await expect(dashboard.signOutButton()).toBeVisible();
+    await expect(dashboard.accountMenu()).toBeVisible();
+    await expect(dashboard.signOutButton()).toBeHidden();
 
-    await dashboard.signOutButton().click();
+    await dashboard.signOut();
 
     await expect(signInSurface(dashboard.page)).toBeVisible();
     await expect
