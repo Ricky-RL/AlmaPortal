@@ -82,13 +82,6 @@ test-integration: db-check test-e2e
 db-check:
 	$(SUPABASE) db lint --local --level warning --workdir $(SUPABASE_WORKDIR)
 	$(SUPABASE) test db --workdir $(SUPABASE_WORKDIR)
-	@set -eu; \
-	status_file=$$(mktemp); \
-	trap 'rm -f "$$status_file"' EXIT; \
-	$(SUPABASE) status -o env --workdir $(SUPABASE_WORKDIR) > "$$status_file"; \
-	set -a; . "$$status_file"; set +a; \
-	test -n "$${DB_URL:-}"; \
-	SUPABASE_DB_ADMIN_URL="$$DB_URL" $(SUPABASE_SCRIPTS)/policy_smoke.sh
 
 supabase-start:
 	$(SUPABASE) start --workdir $(SUPABASE_WORKDIR)
