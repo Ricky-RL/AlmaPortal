@@ -42,6 +42,7 @@ services:
         value: "5"
       - key: LOG_LEVEL
         value: INFO
+      # Required. Use the alma_api URL with PostgreSQL TLS enforced.
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
@@ -64,5 +65,8 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: TRUSTED_CLIENT_IP_HEADER
+        value: CF-Connecting-IP
+      # Required before trusting forwarded client IPs; use current Render proxy CIDRs.
       - key: TRUSTED_PROXY_CIDRS
         sync: false

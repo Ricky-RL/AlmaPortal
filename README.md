@@ -93,7 +93,10 @@ Postgres owns the daily mail budget. A new lead atomically reserves two credits
 from the default 80-credit new-lead pool. A manual retry reserves one credit
 from the separate default 20-credit retry pool. Failed and unknown deliveries
 can be retried manually after the one-minute cooldown, with at most five manual
-retries. Unknown outcomes require explicit duplicate-risk confirmation.
+retries. A reviewer can also trigger an initial attempt that remains `pending`.
+An expired `processing` attempt is durably reconciled to `unknown` before the
+API asks for duplicate-risk confirmation or permits a retry. Unknown outcomes
+require explicit duplicate-risk confirmation.
 
 ## Monorepo map
 
@@ -223,9 +226,11 @@ points:
 - `make lint`: run ESLint and Ruff.
 - `make typecheck`: run TypeScript and strict mypy checks.
 - `make test`: run the normal unit test suites.
-- `make test-e2e`: run the optional Playwright journeys manually.
-- `make test-integration`: run database checks and optional browser journeys.
-- `make ci`: run the same required checks as CI.
+- `make test-e2e`: run the optional Playwright artifact manually.
+- `make test-integration`: run database checks and the optional browser
+  journeys.
+- `make ci`: run the repository's broad local check, including optional
+  Playwright coverage.
 - `make db-check`: verify database connectivity and expected migrations.
 - `make storage-audit`: produce a read-only orphan and missing-resume report.
 - `make demo-reset`: print a local-only reset plan. Apply it only with
@@ -237,10 +242,15 @@ points:
 
 ## Tests
 
-Run the complete local check:
+The named GitHub `CI` workflow requires backend and web unit tests, lint and
+type checks, Supabase policy and migration checks, and both application builds.
+Run its required groups locally with:
 
 ```bash
-make ci
+make lint typecheck
+make unit
+make db-check
+make build
 ```
 
 Run stacks directly when diagnosing a failure:
@@ -257,11 +267,11 @@ pnpm --dir apps/web test
 make db-check
 ```
 
-Integration tests require local Supabase and are never pointed at production.
-Playwright is intentionally excluded from the regular local and CI checks
-because installing and running its browser is too slow for this assessment.
-No test result is claimed in this README. CI is the source of truth for a
-specific commit.
+Database integration checks require local Supabase and are never pointed at
+production. Playwright exists only as an optional manual artifact. It is
+excluded from regular CI per user direction, so browser installation and
+journeys are not release gates. No test result is claimed in this README. The
+named `CI` workflow is the source of truth for its release commit.
 
 Operational commands remain guarded:
 
@@ -273,10 +283,16 @@ EMAIL_SMOKE_RECIPIENT=<authorized-unrelated-address> make email-smoke
 ```
 
 `storage-audit` is read-only unless the reconciliation script is separately
-given a reviewed plan and its explicit purge confirmation. `demo-reset`
-rejects remote database variables and defaults to a dry run. The email smoke
-recipient must be unrelated to configured application addresses and authorized
-to receive the test.
+given a reviewed plan and its explicit purge confirmation. A purge excludes
+objects created within the 15-minute grace period. Before apply, quiesce lead
+submissions and other resume writes, generate and review a fresh plan, keep the
+system quiesced, and provide the script's exact confirmation token. Each object
+is checked again before deletion. Apply requires both
+`--confirm PURGE-ORPHAN-RESUMES` and
+`--confirm-submissions-quiesced SUBMISSIONS-QUIESCED`. `demo-reset` rejects
+remote database variables and defaults to a dry run. The email smoke recipient
+must be unrelated to configured application addresses and authorized to
+receive the test.
 
 ## Google OAuth setup
 
@@ -297,11 +313,8 @@ redirect URI in Cloud Console is not the GoTrue callback.
    Publishing the app is only required when people outside that list must sign
    in.
 4. Create a client: Clients, Create client, application type Web application.
-5. Authorized JavaScript origins, local:
+5. Authorized JavaScript origin, local:
    - `http://127.0.0.1:3000`
-   - `http://localhost:3000`
-
-   Google treats those hosts as different origins. Add both.
 
 6. Authorized redirect URIs, local. This must be the Supabase Auth callback,
    not the Next.js route:
@@ -378,12 +391,19 @@ After migration, confirm that:
 - Browser clients have no direct private-resume read policy.
 - FastAPI has the hosted database URL, Supabase URL, service-role key, expected
   JWT audience, and exact Vercel origin.
+- `GET /health/ready` succeeds as `alma_api` only after checking the runtime
+  database identity, required schema functions and grants, and database access.
 - Backup and point-in-time recovery settings match the chosen Supabase plan.
 
 The custom `alma_api` database role has only the required read and function
 execution grants. The Supabase service-role key is used for private Storage and
 stays on Render. FastAPI must perform object-level authorization before every
 lead or Storage request.
+
+Local Supabase CLI sessions use genuine Supabase HS256 access tokens and the
+local JWT secret from `supabase status`. That verifier is accepted only with a
+loopback Supabase URL outside production. Hosted Supabase must use its exact
+HTTPS issuer and JWKS URLs with an explicit asymmetric algorithm allowlist.
 
 ## SendGrid setup and qualification
 
@@ -420,7 +440,8 @@ Provision providers in this order:
    production environment variables.
 4. Create a GitHub `production` environment. Add required reviewers if desired.
 5. Add the required GitHub Actions secrets and variables.
-6. Run `.github/workflows/deploy.yml` from `main`, or merge to `main`.
+6. Merge to `main`. A successful completion of the named `CI` workflow triggers
+   deployment. There is no manual deployment path that can bypass CI.
 
 GitHub environment secrets:
 
@@ -441,12 +462,14 @@ Repository IDs are configuration, not values this repository can safely guess.
 The deployment workflow requires them through variables. Provider credentials
 remain encrypted secrets.
 
-The workflow applies migrations, asks Render to deploy the exact
-`GITHUB_SHA`, retains and polls that exact Render deployment ID, and verifies
-that `GET /version` returns the same SHA. Only then does it build and deploy
-Vercel from the same checkout. Hosted smoke tests use health, version, and web
-page reads. They do not submit a lead or send email, so rerunning a deployment
-cannot create repeated real mail.
+The workflow derives one `RELEASE_SHA` from
+`github.event.workflow_run.head_sha`, checks out that commit, applies
+migrations, asks Render to deploy that exact commit, and retains and polls the
+returned Render deployment ID. It requires `GET /version` to equal
+`RELEASE_SHA`, so an older healthy service cannot pass. Only then does it build
+and deploy Vercel from the same checkout. Hosted smoke tests use health,
+version, and web page reads. They do not submit a lead or send email, so
+rerunning a deployment cannot create repeated real mail.
 
 Render's free web service sleeps when idle. The first request after inactivity
 can be slow enough to look like a timeout. This assessment intentionally has no
@@ -462,6 +485,19 @@ upload-limit settings declared by `render.yaml` and the API environment
 example. Set Render's required `PUBLIC_API_URL` to its exact public HTTPS
 origin. Production `SENDGRID_BASE_URL` remains
 `https://api.sendgrid.com`; only isolated local tests point it at a stub.
+Set `SUPABASE_URL`, `SUPABASE_JWT_ISSUER`, and `SUPABASE_JWKS_URL` to the exact
+hosted HTTPS values. Use a direct `alma_api` Postgres connection that requires
+TLS, such as `sslmode=require`, and verify the hosted CA policy rather than
+disabling certificate checks.
+
+The current API trusts forwarded addresses only when the direct peer is in
+`TRUSTED_PROXY_CIDRS`, then resolves a validated `X-Forwarded-For` chain.
+Render operators must set that required value to the documented Render proxy
+CIDRs before relying on per-client limits. If Cloudflare is placed in front,
+normalize its `CF-Connecting-IP` value at the trusted edge into that chain and
+never accept the header directly from an untrusted peer. Until the final proxy
+path and CIDRs are confirmed in production, treat source throttling as an
+operational prerequisite, not a completed control.
 
 ## Production gaps and assessment compromises
 

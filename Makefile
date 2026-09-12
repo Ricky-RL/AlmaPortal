@@ -3,7 +3,7 @@ SHELL := /bin/sh
 
 PNPM ?= pnpm
 UV ?= uv
-SUPABASE ?= supabase
+SUPABASE ?= npx -y supabase@2.19.7
 
 WEB_DIR := apps/web
 API_DIR := apps/api

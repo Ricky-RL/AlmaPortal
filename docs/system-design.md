@@ -271,7 +271,9 @@ database text, object keys, or raw SendGrid bodies.
 
 `GET /health/ready`
 
-- Returns `200` only when the API can query Postgres.
+- Returns `200` only when the connection reports the `alma_api` runtime
+  identity, the required schema functions and grants are present, and the API
+  can perform its intended database access.
 - Render uses this endpoint for its service health check.
 
 `GET /version`
@@ -279,7 +281,8 @@ database text, object keys, or raw SendGrid bodies.
 - Returns `{"commit_sha":"<git-sha>"}`.
 - On Render, the value comes from `RENDER_GIT_COMMIT`, with `COMMIT_SHA` as the
   local or non-Render fallback.
-- Production deployment fails unless it exactly equals `GITHUB_SHA`.
+- Production deployment fails unless it exactly equals the `RELEASE_SHA`
+  obtained from the successful CI workflow run.
 
 `POST /api/v1/leads`
 
@@ -471,6 +474,14 @@ peer belongs to `TRUSTED_PROXY_CIDRS`, in which case a validated forwarded
 address may be used. This avoids accepting arbitrary spoofed forwarding
 headers.
 
+For Render, configure `TRUSTED_PROXY_CIDRS` from Render's current proxy
+documentation before treating the source key as a client IP. If Cloudflare is
+placed in front, its edge must normalize `CF-Connecting-IP` into the trusted
+forwarding chain. The API must never accept `CF-Connecting-IP` directly from an
+untrusted peer. The exact production proxy CIDRs and header path are deployment
+configuration, so source-based throttling is not complete until operators
+verify both.
+
 The assessment limiter is in memory. `WEB_CONCURRENCY=1` is required and
 validated at startup. A restart clears the short window, so Postgres capacity
 limits remain the durable abuse and cost backstop.
@@ -487,6 +498,12 @@ store, add account and device signals, and return a consistent `Retry-After`.
 IP-derived keys should be keyed hashes with a rotating secret if persisted.
 
 ## 14. Email attempt claim protocol
+
+A reviewer delivery action has two modes. For a delivery still in `pending`, it
+claims and sends the original attempt with trigger kind `initial`; this recovers
+an initial send that did not start after lead creation. For a terminal `failed`
+or `unknown` delivery, the same reviewer action follows the manual-retry rules
+and uses retry budget. It never silently creates a second initial attempt.
 
 ```mermaid
 sequenceDiagram
@@ -530,6 +547,12 @@ Claim rules:
 6. Complete only when delivery ID, attempt ID, and claim token still match.
 7. Clear the active claim and record a sanitized terminal result.
 
+Before confirmation or retry, an expired `processing` lease is committed as an
+append-only `unknown` attempt and the delivery projection is durably updated to
+`unknown`. The reviewer then sees the ambiguous result and must explicitly
+confirm duplicate-send risk in a later retry request. A rollback or validation
+response cannot erase that reconciliation.
+
 The token prevents a late completion from overwriting a newer attempt. Unique
 constraints prevent two initial claims or two identical attempt numbers.
 
@@ -547,9 +570,10 @@ unknown because the provider may have accepted the message.
   even if the current projection changes.
 - The provider call happens outside the claim transaction, so a slow provider
   does not hold a database lock.
-- The manual retry path first expires a stale claim to `unknown`. Because the
-  provider may have accepted that attempt, a new claim requires duplicate-risk
-  confirmation. No background worker is assumed on free Render.
+- The reviewer action path durably expires a stale claim to `unknown` before
+  confirmation or a new claim. Because the provider may have accepted that
+  attempt, a later retry requires duplicate-risk confirmation. No background
+  worker is assumed on free Render.
 - Initial attempts are best effort after durable lead creation. One delivery
   failure does not block the other.
 - Storage upload before commit has compensating deletion. A periodic audit is
@@ -573,12 +597,18 @@ Operational commands:
 
 - `db-check` verifies connectivity and expected schema.
 - `storage-audit` produces a read-only orphan and missing-object report.
+  Orphans newer than the 15-minute grace period are excluded. Applying a
+  reviewed plan requires submissions and resume writes to remain quiesced, a
+  fresh plan, `--confirm PURGE-ORPHAN-RESUMES`,
+  `--confirm-submissions-quiesced SUBMISSIONS-QUIESCED`, and a final per-object
+  orphan check before deletion.
 - `demo-reset` is a local-only dry run unless the exact confirmation is set.
 - `email-smoke` requires `EMAIL_SMOKE_RECIPIENT`, sends one explicit real
   message, and is excluded from CI and hosted deployment smoke tests.
 
-`/health/live` supports liveness, `/health/ready` checks Postgres, and
-`/version` proves source identity.
+`/health/live` supports liveness. `/health/ready` verifies `alma_api` identity,
+required schema functions and grants, and intended database access. `/version`
+proves source identity.
 Production follow-up should add:
 
 - Metrics for submissions, rejections, bytes, budget remaining, delivery state,
@@ -590,25 +620,29 @@ Production follow-up should add:
 
 ## 17. CI and deployment
 
-Pull-request CI performs deterministic installs, formatting or lint checks,
-type checks, unit tests, migration validation, builds, and integration tests
-against local disposable services. It never uses production credentials or
-sends real mail.
+The named `CI` workflow performs deterministic installs, backend and web unit
+tests, formatting or lint and type checks, Supabase policy and migration
+checks, and both application builds against local disposable services. It never
+uses production credentials or sends real mail. Playwright exists only as an
+optional manual artifact and is excluded from regular CI per user direction.
 
-Production deployment runs only for `main` or a manual dispatch on `main`.
-GitHub's `production` environment can require approval. A concurrency group
-allows one production deployment at a time without canceling an in-progress
-release.
+Production deployment is triggered only when the named `CI` workflow
+successfully completes for `main`. There is no `workflow_dispatch` or direct
+push trigger that can bypass CI. The job also rejects a non-main head branch or
+a head repository other than this repository. GitHub's `production`
+environment can require approval. A concurrency group allows one production
+deployment at a time without canceling an in-progress release.
 
 Deployment order:
 
-1. Checkout one full `GITHUB_SHA`.
+1. Derive one `RELEASE_SHA` from `github.event.workflow_run.head_sha` and check
+   out that commit.
 2. Link the configured Supabase project and apply CLI migrations.
-3. Call Render's deploy API with that exact commit SHA.
+3. Call Render's deploy API with that exact `RELEASE_SHA`.
 4. Retain the returned Render deployment ID.
 5. Poll `GET /services/{service}/deploys/{that-id}` until that deployment is
    `live` or terminally failed.
-6. Poll the configured API and require `GET /version` to equal `GITHUB_SHA`.
+6. Poll the configured API and require `GET /version` to equal `RELEASE_SHA`.
    An older healthy Render instance cannot pass.
 7. From the monorepo root, pull the Vercel project whose configured Root
    Directory is `apps/web`, build from the same checkout, and deploy the
@@ -633,6 +667,14 @@ same public HTTPS origin. IDs and live origins cannot be inferred safely from
 source. Render automatic deploys should be disabled so the ordered workflow is
 the production release authority.
 
+Hosted configuration must use the exact HTTPS `SUPABASE_URL`,
+`SUPABASE_JWT_ISSUER`, and `SUPABASE_JWKS_URL` from the selected project.
+`SENDGRID_BASE_URL` remains `https://api.sendgrid.com`. `DATABASE_URL` must
+connect as `alma_api` with PostgreSQL TLS required, such as `sslmode=require`,
+and must not disable certificate verification. Render's trusted proxy CIDRs and
+the `CF-Connecting-IP` normalization strategy described in the rate-limit
+section must be confirmed before deployment.
+
 ## 18. Security and privacy analysis
 
 ### Identity and authorization
@@ -646,7 +688,7 @@ the production release authority.
 
 ### Data protection
 
-- TLS protects provider connections.
+- Exact HTTPS provider origins and PostgreSQL TLS protect connections.
 - Supabase encrypts managed data at rest according to the selected plan.
 - Resumes use private Storage and API streaming.
 - Secrets stay in provider secret stores.

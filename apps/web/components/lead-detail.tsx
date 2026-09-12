@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Download, RotateCw } from "lucide-react";
+import { ArrowLeft, Download, RotateCw, Send } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -34,7 +34,9 @@ function DeliveryCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const duplicateRisk = hasDuplicateRetryRisk(delivery.state);
-  const canRetry = delivery.state === "failed" || delivery.state === "unknown";
+  const isPending = delivery.state === "pending";
+  const canRetry =
+    isPending || delivery.state === "failed" || delivery.state === "unknown";
 
   async function retry() {
     setBusy(true);
@@ -48,7 +50,11 @@ function DeliveryCard({
       );
       setConfirmed(false);
     } catch {
-      setError("The notification could not be retried.");
+      setError(
+        isPending
+          ? "The pending notification could not be sent."
+          : "The notification could not be retried.",
+      );
     } finally {
       setBusy(false);
     }
@@ -103,8 +109,18 @@ function DeliveryCard({
             disabled={busy || (duplicateRisk && !confirmed)}
             onClick={retry}
           >
-            <RotateCw className="mr-2 size-4" aria-hidden="true" />
-            {busy ? "Retrying…" : "Retry notification"}
+            {isPending ? (
+              <Send className="mr-2 size-4" aria-hidden="true" />
+            ) : (
+              <RotateCw className="mr-2 size-4" aria-hidden="true" />
+            )}
+            {busy
+              ? isPending
+                ? "Sending…"
+                : "Retrying…"
+              : isPending
+                ? "Send pending notification"
+                : "Retry notification"}
           </Button>
           {error && (
             <p className="mt-3 text-sm font-medium text-red-800" role="alert">
