@@ -146,6 +146,7 @@ def test_read_models_match_canonical_migration_columns() -> None:
         "first_name",
         "last_name",
         "normalized_email",
+        "comments",
         "resume_object_path",
         "original_filename",
         "detected_media_type",

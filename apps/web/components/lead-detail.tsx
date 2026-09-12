@@ -360,6 +360,12 @@ export function LeadDetail({
               <dd className="mt-1 break-all">{lead.id}</dd>
             </div>
             <div>
+              <dt className="font-semibold text-[var(--muted)]">Comments</dt>
+              <dd className="mt-1 whitespace-pre-wrap">
+                {lead.comments ?? "None provided"}
+              </dd>
+            </div>
+            <div>
               <dt className="font-semibold text-[var(--muted)]">Resume</dt>
               <dd className="mt-1">{lead.resumeName ?? "Not available"}</dd>
             </div>

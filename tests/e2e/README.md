@@ -31,7 +31,7 @@ Paths and multipart names are configurable in `.env`. Defaults assume:
 - the public form is `/`, sign-in is `/login`, and the dashboard is `/leads`
 - successful public submission renders the inline `Submission received` heading; `E2E_SUCCESS_PATH` remains available for an explicitly configured routed variant
 - the submission endpoint is `POST /api/v1/leads`
-- multipart fields are `first_name`, `last_name`, `email`, `synthetic_data_acknowledged`, and `resume`
+- multipart fields are `first_name`, `last_name`, `email`, `synthetic_data_acknowledged`, `resume`, and optional `comments`
 - Supabase tables are `leads` and `email_deliveries`
 - lead columns include `id`, `normalized_email`, `status`, and `resume_object_path`
 - delivery columns include `lead_id`, `delivery_kind`, `state`, `active_claim_token`, and `retry_count`
@@ -41,7 +41,7 @@ Paths and multipart names are configurable in `.env`. Defaults assume:
 
 The page objects prefer accessible roles and labels. The expected UI contract is:
 
-- labeled first name, last name, email, resume, and acknowledgement form controls
+- labeled first name, last name, email, optional comments, resume, and acknowledgement form controls
 - a visible success heading, status, or message
 - `main` and navigation landmarks plus a single level-one heading
 - a labeled search input and status filter

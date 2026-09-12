@@ -40,6 +40,21 @@ export function Input({
   );
 }
 
+export function Textarea({
+  className,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        "min-h-28 w-full rounded-xl border border-[var(--line)] bg-white px-3.5 py-2.5 text-base text-[var(--ink)] shadow-sm outline-none placeholder:text-[var(--muted)] focus:border-[var(--green)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--green)_20%,transparent)] disabled:bg-stone-100",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
 export function Card({
   className,
   ...props

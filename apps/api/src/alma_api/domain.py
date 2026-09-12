@@ -11,6 +11,8 @@ from uuid import UUID, uuid4
 
 NAME_MAX_LENGTH = 100
 EMAIL_MAX_LENGTH = 320
+COMMENTS_MAX_LENGTH = 2000
+_ALLOWED_COMMENT_CONTROLS = frozenset("\t\n\r")
 _EMAIL_PATTERN = re.compile(
     r"(?=.{3,320}\Z)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\Z",
@@ -86,6 +88,26 @@ class NormalizedEmail:
         return cls(value)
 
 
+def parse_optional_comments(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    value = unicodedata.normalize("NFKC", raw).strip()
+    if not value:
+        return None
+    if len(value) > COMMENTS_MAX_LENGTH:
+        raise DomainError(
+            "invalid_comments",
+            f"comments must be at most {COMMENTS_MAX_LENGTH} characters",
+        )
+    if any(
+        unicodedata.category(character).startswith("C")
+        and character not in _ALLOWED_COMMENT_CONTROLS
+        for character in value
+    ):
+        raise DomainError("invalid_comments", "comments contain unsupported characters")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class AuthenticatedReviewer:
     id: UUID
@@ -134,6 +156,7 @@ class Lead:
     status: LeadStatus
     created_at: datetime
     updated_at: datetime
+    comments: str | None = None
     reached_out_by: AuthenticatedReviewer | None = None
     reached_out_at: datetime | None = None
 
@@ -151,6 +174,7 @@ class Lead:
         resume: ResumeMetadata,
         now: datetime,
         lead_id: UUID | None = None,
+        comments: str | None = None,
     ) -> Lead:
         timestamp = require_aware(now)
         return cls(
@@ -162,6 +186,7 @@ class Lead:
             status=LeadStatus.PENDING,
             created_at=timestamp,
             updated_at=timestamp,
+            comments=comments,
         )
 
     def transition(
