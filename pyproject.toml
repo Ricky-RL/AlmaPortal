@@ -1,0 +1,11 @@
+[project]
+name = "almaportal-workspace"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+
+[tool.uv]
+package = false
+required-version = ">=0.6.5,<1"
+
+[tool.uv.workspace]
+members = ["apps/api"]

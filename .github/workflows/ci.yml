@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  NODE_VERSION: 22.14.0
+  PYTHON_VERSION: 3.12.8
+  PNPM_VERSION: 10.15.1
+  UV_VERSION: 0.6.5
+  SUPABASE_CLI_VERSION: 2.19.7
+  SUPABASE_STORAGE_BUCKET: resumes
+  PUBLIC_API_URL: http://127.0.0.1:8000
+  NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+  API_URL: http://127.0.0.1:8000
+  APP_URL: http://127.0.0.1:3000
+  CSRF_SECRET: ci-only-csrf-secret-000000000000000000000000
+  GOOGLE_CLIENT_ID: ci-google-client-id.invalid
+  GOOGLE_CLIENT_SECRET: ci-google-client-secret-placeholder
+  GOOGLE_REDIRECT_URI: http://127.0.0.1:54321/auth/v1/callback
+  SENDGRID_API_KEY: ci-sendgrid-placeholder
+  SENDGRID_BASE_URL: http://127.0.0.1:4319
+  SENDGRID_FROM_EMAIL: no-reply@example.invalid
+  ATTORNEY_NOTIFICATION_EMAIL: attorney@example.invalid
+  SENDGRID_TRIAL_EXPIRES_AT: "2099-01-01T00:00:00Z"
+  TICKET_SIGNING_SECRET: ci-only-download-ticket-secret-0000000000000000
+  CORS_ORIGINS: http://127.0.0.1:3000
+  JWT_ALGORITHMS: HS256
+  OVERALL_BODY_CAP_BYTES: "12582912"
+  PUBLIC_RATE_LIMIT: "5"
+  PUBLIC_RATE_WINDOW_SECONDS: "900"
+  WEB_CONCURRENCY: "1"
+  COMMIT_SHA: ${{ github.sha }}
+
+jobs:
+  verify:
+    name: Verify monorepo
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5.2.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Install TypeScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Python dependencies
+        run: uv sync --all-packages --all-extras --locked
+
+      - name: Start local Supabase
+        run: make supabase-start
+
+      - name: Reset migrations from zero
+        run: make supabase-reset
+
+      - name: Export local runtime credentials
+        run: |
+          make db-runtime-credentials
+          cat .env.runtime >> "$GITHUB_ENV"
+
+      - name: Run lint and type checks
+        run: make lint typecheck
+
+      - name: Run Python and web unit tests
+        run: make unit
+
+      - name: Run policy and migration tests
+        run: make db-check
+
+      - name: Build applications
+        run: make build
+
+      - name: Stop local Supabase
+        if: always()
+        run: make supabase-stop || true
+
+  secret-scan:
+    name: Scan committed secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          ghcr.io/gitleaks/gitleaks:v8.24.3
+          detect --source /repo --redact --verbose --no-banner
