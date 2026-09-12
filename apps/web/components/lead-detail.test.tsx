@@ -102,6 +102,7 @@ describe("lead details", () => {
     expect(
       await screen.findByRole("heading", { name: "Ada Lovelace" }),
     ).toBeVisible();
+    expect(screen.getByText("None provided")).toBeVisible();
     expect(screen.getByText(/does not prove.*recipient's inbox/i)).toBeVisible();
     expect(screen.getByText(/manual retry by reviewer@example.test/i)).toBeVisible();
 
