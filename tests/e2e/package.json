@@ -1,0 +1,27 @@
+{
+  "name": "@almaportal/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Independent Playwright browser tests for AlmaPortal",
+  "type": "module",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "browsers:install": "playwright install chromium",
+    "sendgrid:stub": "node helpers/sendgrid-stub-server.mjs",
+    "test": "playwright test",
+    "test:desktop": "playwright test --project=desktop-chromium",
+    "test:mobile": "playwright test --project=mobile-chromium",
+    "test:headed": "playwright test --project=desktop-chromium --headed",
+    "test:debug": "playwright test --project=desktop-chromium --debug",
+    "test:list": "playwright test --list",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.57.4",
+    "@types/node": "^22.18.1",
+    "dotenv": "^17.2.2",
+    "typescript": "^5.9.2"
+  }
+}
