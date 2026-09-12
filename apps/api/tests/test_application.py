@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -40,13 +41,25 @@ class FixedClock:
 
 
 class FakeStorage:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        active_uow: Callable[[], bool] = lambda: False,
+        fail_upload: bool = False,
+    ) -> None:
         self.events = events
         self.uploaded: dict[str, bytes] = {}
         self.deleted: list[str] = []
+        self.active_uow = active_uow
+        self.fail_upload = fail_upload
+        self.upload_outside_uow = False
 
     async def upload(self, key: str, content: bytes, _: str) -> None:
         self.events.append("upload")
+        self.upload_outside_uow = not self.active_uow()
+        if self.fail_upload:
+            raise RuntimeError("storage failed")
         self.uploaded[key] = content
 
     async def delete(self, key: str) -> None:
@@ -128,11 +141,14 @@ class FakeUow:
         self.deliveries = deliveries
         self.budgets = budgets
         self.committed = False
+        self.active = False
 
     async def __aenter__(self) -> FakeUow:
+        self.active = True
         return self
 
     async def __aexit__(self, *_: object) -> None:
+        self.active = False
         return None
 
     async def commit(self) -> None:
@@ -172,7 +188,7 @@ async def test_submit_reserves_before_upload_then_calls_create_function() -> Non
     leads = FakeLeads(events)
     budgets = FakeBudgets(events)
     uow = FakeUow(leads, FakeDeliveries(deliveries), budgets)
-    storage = FakeStorage(events)
+    storage = FakeStorage(events, active_uow=lambda: uow.active)
     sender = FakeDeliveryService()
     use_case = SubmitLead(
         uow_factory=lambda: uow,
@@ -188,6 +204,7 @@ async def test_submit_reserves_before_upload_then_calls_create_function() -> Non
     assert lead.resume.object_key.startswith(f"leads/{lead.id}/")
     assert len(lead.resume.object_key.split("/")) == 3
     assert len(storage.uploaded) == 1
+    assert storage.upload_outside_uow
     assert sender.calls == [delivery.id for delivery in deliveries]
 
 
@@ -211,6 +228,29 @@ async def test_storage_upload_is_compensated_when_create_function_fails() -> Non
         await use_case(SubmitLeadCommand("Ada", "Lovelace", "ada@example.com", True, resume()))
     assert storage.uploaded == {}
     assert len(storage.deleted) == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_failure_keeps_committed_email_credit_reservation() -> None:
+    events: list[str] = []
+    uow = FakeUow(FakeLeads(events), FakeDeliveries(), FakeBudgets(events))
+    storage = FakeStorage(
+        events,
+        active_uow=lambda: uow.active,
+        fail_upload=True,
+    )
+    use_case = SubmitLead(
+        uow_factory=lambda: uow,
+        storage=storage,
+        delivery_service=FakeDeliveryService(),
+        composer=EmailComposer(NormalizedEmail.parse("attorney@example.com")),
+        clock=FixedClock(),
+    )
+    with pytest.raises(RuntimeError, match="storage failed"):
+        await use_case(SubmitLeadCommand("Ada", "Lovelace", "ada@example.com", True, resume()))
+    assert uow.committed
+    assert storage.upload_outside_uow
+    assert storage.deleted == []
 
 
 @pytest.mark.asyncio

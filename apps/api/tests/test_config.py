@@ -27,6 +27,22 @@ def settings_values(**changes: Any) -> dict[str, Any]:
     return values
 
 
+def production_values(**changes: Any) -> dict[str, Any]:
+    values = settings_values(
+        environment="production",
+        database_url=(
+            "postgresql://postgres.project-ref:password@db.example.com/alma?sslmode=require"
+        ),
+        supabase_url="https://project.supabase.co",
+        supabase_jwt_issuer="https://project.supabase.co/auth/v1",
+        supabase_jwks_url=("https://project.supabase.co/auth/v1/.well-known/jwks.json"),
+        public_api_url="https://api.alma.example",
+        cors_origins=("https://alma.example",),
+    )
+    values.update(changes)
+    return values
+
+
 def test_provider_defaults_match_canonical_services() -> None:
     settings = Settings(**settings_values())
     assert settings.storage_bucket == "resumes"
@@ -104,5 +120,52 @@ def test_hs256_cannot_be_combined_with_asymmetric_algorithms() -> None:
             **settings_values(
                 jwt_algorithms=("RS256", "HS256"),
                 supabase_jwt_secret="local-supabase-jwt-secret-at-least-32-bytes",
+            )
+        )
+
+
+def test_production_provider_origins_are_exact_and_credential_free() -> None:
+    settings = Settings(**production_values())
+    assert settings.supabase_url == "https://project.supabase.co"
+
+    invalid = (
+        {"supabase_url": "http://project.supabase.co"},
+        {"supabase_url": "https://user:password@project.supabase.co"},
+        {"supabase_url": "https://project.supabase.co/rest"},
+        {"supabase_jwt_issuer": "https://other.example/auth/v1"},
+        {"supabase_jwks_url": "https://other.example/jwks.json"},
+        {"sendgrid_base_url": "https://sendgrid.example"},
+    )
+    for changes in invalid:
+        with pytest.raises(ValidationError):
+            Settings(**production_values(**changes))
+
+
+def test_remote_postgres_requires_tls_without_restricting_supavisor_username() -> None:
+    settings = Settings(**production_values())
+    assert settings.sqlalchemy_url.startswith("postgresql+psycopg://postgres.project-ref:")
+    for database_url in (
+        "postgresql://postgres.project-ref:password@db.example.com/alma",
+        "postgresql://postgres.project-ref:password@db.example.com/alma?sslmode=disable",
+    ):
+        with pytest.raises(ValidationError):
+            Settings(**production_values(database_url=database_url))
+
+
+def test_trusted_client_ip_header_requires_documented_proxy_networks() -> None:
+    settings = Settings(
+        **settings_values(
+            trusted_client_ip_header="cf-connecting-ip",
+            trusted_proxy_cidrs=("10.0.0.0/8",),
+        )
+    )
+    assert settings.trusted_client_ip_header == "CF-Connecting-IP"
+    with pytest.raises(ValidationError):
+        Settings(**settings_values(trusted_client_ip_header="CF-Connecting-IP"))
+    with pytest.raises(ValidationError):
+        Settings(
+            **settings_values(
+                trusted_client_ip_header="X-Forwarded-For",
+                trusted_proxy_cidrs=("10.0.0.0/8",),
             )
         )

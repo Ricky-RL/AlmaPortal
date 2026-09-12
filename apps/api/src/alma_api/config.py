@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+from ipaddress import ip_address, ip_network
 from typing import Self
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict, SecretStr, field_validator, model_validator
 
@@ -29,9 +30,11 @@ class Settings(BaseModel):
     ticket_signing_secret: SecretStr
     cors_origins: tuple[str, ...]
     trusted_proxy_cidrs: tuple[str, ...] = ()
+    trusted_client_ip_header: str | None = None
     overall_body_cap_bytes: int = 12 * 1024 * 1024
     public_rate_limit: int = 5
     public_rate_window_seconds: int = 15 * 60
+    public_rate_limit_max_keys: int = 10_000
     provider_timeout_seconds: float = 5.0
     commit_sha: str = "unknown"
     log_level: str = "INFO"
@@ -46,6 +49,14 @@ class Settings(BaseModel):
     @classmethod
     def strip_url(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @field_validator("environment")
+    @classmethod
+    def normalize_environment(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"development", "test", "production"}:
+            raise ValueError("ENVIRONMENT must be development, test, or production")
+        return normalized
 
     @field_validator("cors_origins")
     @classmethod
@@ -71,6 +82,25 @@ class Settings(BaseModel):
             raise ValueError("JWT algorithms must be an explicit asymmetric allowlist")
         return value
 
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def validate_proxy_cidrs(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        try:
+            for cidr in value:
+                ip_network(cidr, strict=False)
+        except ValueError as exc:
+            raise ValueError("TRUSTED_PROXY_CIDRS contains an invalid network") from exc
+        return value
+
+    @field_validator("trusted_client_ip_header")
+    @classmethod
+    def validate_client_ip_header(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if value.strip().lower() != "cf-connecting-ip":
+            raise ValueError("TRUSTED_CLIENT_IP_HEADER may only be CF-Connecting-IP")
+        return "CF-Connecting-IP"
+
     @field_validator("ticket_signing_secret")
     @classmethod
     def validate_ticket_secret(cls, value: SecretStr) -> SecretStr:
@@ -86,6 +116,7 @@ class Settings(BaseModel):
             self.overall_body_cap_bytes,
             self.public_rate_limit,
             self.public_rate_window_seconds,
+            self.public_rate_limit_max_keys,
             self.provider_timeout_seconds,
         )
         if any(value <= 0 for value in positive_values):
@@ -96,6 +127,8 @@ class Settings(BaseModel):
             origin.startswith("http://") for origin in self.cors_origins
         ):
             raise ValueError("production CORS origins must use HTTPS")
+        if self.trusted_client_ip_header is not None and not self.trusted_proxy_cidrs:
+            raise ValueError("TRUSTED_CLIENT_IP_HEADER requires documented TRUSTED_PROXY_CIDRS")
         validate_service_url(
             self.sendgrid_base_url,
             environment=self.environment,
@@ -106,6 +139,23 @@ class Settings(BaseModel):
             environment=self.environment,
             setting="PUBLIC_API_URL",
         )
+        validate_service_url(
+            self.supabase_url,
+            environment=self.environment,
+            setting="SUPABASE_URL",
+        )
+        expected_issuer = f"{self.supabase_url}/auth/v1"
+        expected_jwks = f"{expected_issuer}/.well-known/jwks.json"
+        if self.supabase_jwt_issuer != expected_issuer:
+            raise ValueError("SUPABASE_JWT_ISSUER must be the auth child of SUPABASE_URL")
+        if self.supabase_jwks_url != expected_jwks:
+            raise ValueError("SUPABASE_JWKS_URL must be the JWKS child of SUPABASE_URL")
+        if (
+            self.environment == "production"
+            and self.sendgrid_base_url != "https://api.sendgrid.com"
+        ):
+            raise ValueError("production SENDGRID_BASE_URL must be https://api.sendgrid.com")
+        validate_database_tls(self.database_url.get_secret_value())
         local_hs256 = self.jwt_algorithms == ("HS256",)
         if local_hs256:
             if self.environment == "production":
@@ -144,9 +194,11 @@ class Settings(BaseModel):
             ticket_signing_secret=required("TICKET_SIGNING_SECRET"),
             cors_origins=csv("CORS_ORIGINS"),
             trusted_proxy_cidrs=csv("TRUSTED_PROXY_CIDRS", ()),
+            trusted_client_ip_header=optional("TRUSTED_CLIENT_IP_HEADER"),
             overall_body_cap_bytes=int(os.getenv("OVERALL_BODY_CAP_BYTES", str(12 * 1024 * 1024))),
             public_rate_limit=int(os.getenv("PUBLIC_RATE_LIMIT", "5")),
             public_rate_window_seconds=int(os.getenv("PUBLIC_RATE_WINDOW_SECONDS", "900")),
+            public_rate_limit_max_keys=int(os.getenv("PUBLIC_RATE_LIMIT_MAX_KEYS", "10000")),
             provider_timeout_seconds=float(os.getenv("PROVIDER_TIMEOUT_SECONDS", "5")),
             commit_sha=os.getenv("RENDER_GIT_COMMIT", os.getenv("COMMIT_SHA", "unknown")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -210,8 +262,19 @@ def is_loopback_host(hostname: str | None) -> bool:
     if hostname.lower() == "localhost":
         return True
     try:
-        from ipaddress import ip_address
-
         return ip_address(hostname).is_loopback
     except ValueError:
         return False
+
+
+def validate_database_tls(value: str) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"postgres", "postgresql", "postgresql+psycopg"}:
+        raise ValueError("DATABASE_URL must use PostgreSQL")
+    if parsed.hostname is None or is_loopback_host(parsed.hostname):
+        return
+    ssl_modes = parse_qs(parsed.query).get("sslmode", [])
+    if len(ssl_modes) != 1 or ssl_modes[0] not in {"require", "verify-ca", "verify-full"}:
+        raise ValueError(
+            "non-loopback DATABASE_URL requires sslmode=require, verify-ca, or verify-full"
+        )

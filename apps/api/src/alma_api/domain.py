@@ -5,15 +5,12 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
 NAME_MAX_LENGTH = 100
 EMAIL_MAX_LENGTH = 320
-MAX_MANUAL_RETRIES = 5
-MANUAL_RETRY_COOLDOWN = timedelta(minutes=1)
-
 _EMAIL_PATTERN = re.compile(
     r"(?=.{3,320}\Z)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@"
     r"(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\Z",
@@ -208,25 +205,6 @@ class Delivery:
     @property
     def attempt_count(self) -> int:
         return self.retry_count + (1 if self.last_attempt_at is not None else 0)
-
-    def assert_manual_retry_preconditions(self, *, duplicate_risk_confirmed: bool) -> None:
-        if self.state is DeliveryState.PROVIDER_ACCEPTED:
-            raise DomainError(
-                "delivery_already_accepted", "delivery was already accepted by the provider"
-            )
-        if self.state is DeliveryState.PROCESSING:
-            raise DomainError("delivery_in_progress", "a delivery attempt is already in progress")
-        if self.retry_count >= MAX_MANUAL_RETRIES:
-            raise DomainError("retry_limit_reached", "delivery has reached the manual retry limit")
-        if self.state is DeliveryState.UNKNOWN and not duplicate_risk_confirmed:
-            raise DomainError(
-                "duplicate_risk_confirmation_required",
-                "the previous attempt outcome is unknown; confirm duplicate-delivery risk",
-            )
-        if self.state not in {DeliveryState.FAILED, DeliveryState.UNKNOWN}:
-            raise DomainError(
-                "delivery_not_retryable", "only failed or unknown deliveries can be retried"
-            )
 
 
 @dataclass(frozen=True, slots=True)

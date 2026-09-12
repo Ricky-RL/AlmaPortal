@@ -19,6 +19,7 @@ from alma_api.persistence import (
     LeadRow,
     SqlAlchemyBudgetRepository,
     SqlAlchemyDeliveryRepository,
+    SqlAlchemyUnitOfWork,
 )
 
 NOW = datetime(2026, 6, 1, 10, tzinfo=UTC)
@@ -55,6 +56,9 @@ class FunctionSession:
         self.scalar_results = list(scalar_results or [])
         self.scalars_results = list(scalars_results or [])
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.commits = 0
+        self.rollbacks = 0
+        self.closed = False
 
     async def execute(
         self, statement: object, parameters: dict[str, Any] | None = None
@@ -69,6 +73,15 @@ class FunctionSession:
     async def scalars(self, statement: object) -> ScalarResult:
         self.calls.append((str(statement), None))
         return ScalarResult(self.scalars_results.pop(0))
+
+    async def commit(self) -> None:
+        self.commits += 1
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 def delivery_row(
@@ -222,6 +235,8 @@ async def test_manual_claim_expires_first_and_database_owns_retry_budget() -> No
         ],
     )
     repository = SqlAlchemyDeliveryRepository(session)  # type: ignore[arg-type]
+    reconciliation = await repository.reconcile_claim(before.id)
+    assert reconciliation.value == "expired_to_unknown"
     claim = await repository.claim_manual(
         before.id,
         reviewer=reviewer,
@@ -255,6 +270,8 @@ async def test_unknown_manual_claim_requires_confirmation_before_claim_function(
         ]
     )
     repository = SqlAlchemyDeliveryRepository(session)  # type: ignore[arg-type]
+    reconciliation = await repository.reconcile_claim(delivery.id)
+    assert reconciliation.value == "not_processing"
     with pytest.raises(Exception) as error:
         await repository.claim_manual(
             delivery.id,
@@ -335,3 +352,38 @@ async def test_new_lead_budget_uses_database_function() -> None:
     sql, parameters = session.calls[0]
     assert "reserve_new_lead_email_budget" in sql
     assert parameters == {"reservation_key": reservation_key}
+
+
+@pytest.mark.asyncio
+async def test_readiness_requires_runtime_role_schema_and_grants() -> None:
+    ready = {
+        "runtime_role": "alma_api",
+        "has_leads": True,
+        "has_deliveries": True,
+        "has_attempts": True,
+        "can_read_leads": True,
+        "can_read_deliveries": True,
+        "can_read_attempts": True,
+        "can_reserve_lead_budget": True,
+        "can_create_lead": True,
+        "can_transition_lead": True,
+        "can_claim_delivery": True,
+        "can_expire_claim": True,
+        "can_complete_delivery": True,
+    }
+    session = FunctionSession(execute_results=[ready])
+    uow = SqlAlchemyUnitOfWork(lambda: session)  # type: ignore[arg-type]
+    async with uow:
+        await uow.check_connection()
+    sql = session.calls[0][0].lower()
+    assert "current_user" in sql
+    assert "to_regclass('public.leads')" in sql
+    assert "has_function_privilege" in sql
+
+    not_ready = {**ready, "runtime_role": "postgres"}
+    session = FunctionSession(execute_results=[not_ready])
+    uow = SqlAlchemyUnitOfWork(lambda: session)  # type: ignore[arg-type]
+    with pytest.raises(Exception) as error:
+        async with uow:
+            await uow.check_connection()
+    assert getattr(error.value, "code", None) == "dependency_unavailable"

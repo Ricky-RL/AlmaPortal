@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from alma_api.application import StoredObject
+from alma_api.application import DependencyUnavailableError, StoredObject
 from alma_api.domain import (
     AuthenticatedReviewer,
     Lead,
@@ -194,3 +194,28 @@ async def test_health_and_version_contracts() -> None:
     assert live.json() == {"status": "ok"}
     assert ready.json() == {"status": "ready"}
     assert version.json() == {"commit_sha": "abc123"}
+
+
+@pytest.mark.asyncio
+async def test_readiness_and_dependency_failures_return_503() -> None:
+    app, _ = build_test_app()
+
+    class NotReadyUow(ReadyUow):
+        async def check_connection(self) -> None:
+            raise DependencyUnavailableError("database role is not ready")
+
+    app.state.services.uow_factory = lambda: NotReadyUow()
+
+    @app.get("/dependency-failure")
+    async def dependency_failure() -> None:
+        raise DependencyUnavailableError("provider is unavailable")
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        ready = await client.get("/health/ready")
+        provider = await client.get("/dependency-failure")
+    assert ready.status_code == 503
+    assert provider.status_code == 503
+    assert provider.json()["code"] == "dependency_unavailable"

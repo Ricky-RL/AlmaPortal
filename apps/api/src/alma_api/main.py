@@ -137,6 +137,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(create_router())
     install_exception_handlers(app)
     app.add_middleware(
+        PublicSubmissionRateLimitMiddleware,
+        limiter=InMemoryRateLimiter(
+            limit=resolved.public_rate_limit,
+            window_seconds=resolved.public_rate_window_seconds,
+            max_keys=resolved.public_rate_limit_max_keys,
+        ),
+        resolver=ClientIpResolver(
+            resolved.trusted_proxy_cidrs,
+            client_ip_header=resolved.trusted_client_ip_header,
+        ),
+    )
+    app.add_middleware(BodyCapMiddleware, max_bytes=resolved.overall_body_cap_bytes)
+    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(
         CORSMiddleware,
         allow_origins=list(resolved.cors_origins),
         allow_credentials=False,
@@ -145,16 +159,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_headers=["X-Request-ID"],
         max_age=600,
     )
-    app.add_middleware(
-        PublicSubmissionRateLimitMiddleware,
-        limiter=InMemoryRateLimiter(
-            limit=resolved.public_rate_limit,
-            window_seconds=resolved.public_rate_window_seconds,
-        ),
-        resolver=ClientIpResolver(resolved.trusted_proxy_cidrs),
-    )
-    app.add_middleware(BodyCapMiddleware, max_bytes=resolved.overall_body_cap_bytes)
-    app.add_middleware(RequestContextMiddleware)
     return app
 
 

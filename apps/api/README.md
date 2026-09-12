@@ -21,6 +21,8 @@ Runtime configuration is supplied through environment variables:
 - `TICKET_SIGNING_SECRET`, at least 32 bytes
 - `CORS_ORIGINS`, comma-separated explicit origins
 - `TRUSTED_PROXY_CIDRS`, comma-separated documented proxy networks
+- `TRUSTED_CLIENT_IP_HEADER`, optional and limited to `CF-Connecting-IP`
+- `PUBLIC_RATE_LIMIT_MAX_KEYS`, defaults to `10000`
 - `COMMIT_SHA` or Render's `RENDER_GIT_COMMIT`
 
 `WEB_CONCURRENCY` must be `1` because the pre-parse public submission limiter
@@ -32,6 +34,16 @@ Supabase CLI instance can use `JWT_ALGORITHMS=HS256` with
 least 32 bytes, a loopback `SUPABASE_URL`, and a non-production environment.
 It never calls JWKS, but applies the same issuer, audience, expiry, role,
 non-anonymous, email, and signed Google provider checks as asymmetric tokens.
+
+In production, `SUPABASE_URL` must be a credential-free HTTPS origin. The
+issuer and JWKS URL must be its exact Auth children, and SendGrid must use
+`https://api.sendgrid.com`. Remote PostgreSQL URLs must set `sslmode` to
+`require`, `verify-ca`, or `verify-full`.
+
+By default, rate limiting uses the socket peer and ignores
+`X-Forwarded-For`. Set `TRUSTED_CLIENT_IP_HEADER=CF-Connecting-IP` only with
+the documented proxy networks in `TRUSTED_PROXY_CIDRS`. Malformed or repeated
+trusted client-IP headers are rejected.
 
 ## Database contract
 

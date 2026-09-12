@@ -107,41 +107,6 @@ def test_canonical_delivery_values_and_mime_derived_format() -> None:
     assert resume_format_from_media_type("application/msword") is ResumeFormat.DOC
 
 
-def test_unknown_requires_confirmation_and_processing_cannot_retry() -> None:
-    unknown = make_delivery(state=DeliveryState.UNKNOWN)
-    with pytest.raises(DomainError) as confirmation:
-        unknown.assert_manual_retry_preconditions(duplicate_risk_confirmed=False)
-    assert confirmation.value.code == "duplicate_risk_confirmation_required"
-    unknown.assert_manual_retry_preconditions(duplicate_risk_confirmed=True)
-
-    processing = make_delivery(
-        state=DeliveryState.PROCESSING,
-        active_attempt_id=uuid4(),
-        active_claim_token=uuid4(),
-        claimed_at=NOW,
-        claim_expires_at=NOW + timedelta(minutes=5),
-        last_error=None,
-    )
-    with pytest.raises(DomainError) as active:
-        processing.assert_manual_retry_preconditions(duplicate_risk_confirmed=True)
-    assert active.value.code == "delivery_in_progress"
-
-
-def test_delivery_retry_limit_and_invalid_state_rules() -> None:
-    with pytest.raises(DomainError) as limit:
-        make_delivery(retry_count=5).assert_manual_retry_preconditions(
-            duplicate_risk_confirmed=True
-        )
-    assert limit.value.code == "retry_limit_reached"
-    with pytest.raises(DomainError) as pending:
-        make_delivery(
-            state=DeliveryState.PENDING,
-            last_attempt_at=None,
-            last_error=None,
-        ).assert_manual_retry_preconditions(duplicate_risk_confirmed=True)
-    assert pending.value.code == "delivery_not_retryable"
-
-
 def test_pdf_doc_and_docx_magic_are_validated() -> None:
     assert validate_resume(b"%PDF-1.7\n", "r.pdf").format is ResumeFormat.PDF
     assert (

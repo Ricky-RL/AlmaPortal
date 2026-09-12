@@ -24,7 +24,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -36,9 +36,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from alma_api.application import (
     ApplicationError,
     BudgetExceededError,
+    ClaimReconciliation,
     ConcurrencyError,
     CursorPosition,
     DemoCapacity,
+    DependencyUnavailableError,
     EmailBudget,
     NotFoundError,
     UnitOfWork,
@@ -268,6 +270,10 @@ class SqlAlchemyDeliveryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def get(self, delivery_id: UUID) -> Delivery | None:
+        row = await self._session.scalar(select(DeliveryRow).where(DeliveryRow.id == delivery_id))
+        return _row_to_delivery(row) if row is not None else None
+
     async def list_for_lead(self, lead_id: UUID) -> tuple[Delivery, ...]:
         rows = (
             await self._session.scalars(
@@ -308,13 +314,7 @@ class SqlAlchemyDeliveryRepository:
         delivery = await self._get_delivery(delivery_id)
         return _claim_from_function(claim_result, delivery)
 
-    async def claim_manual(
-        self,
-        delivery_id: UUID,
-        *,
-        reviewer: AuthenticatedReviewer,
-        duplicate_risk_confirmed: bool,
-    ) -> DeliveryClaim:
+    async def reconcile_claim(self, delivery_id: UUID) -> ClaimReconciliation:
         try:
             expiration_raw = await self._session.scalar(
                 text(
@@ -329,12 +329,20 @@ class SqlAlchemyDeliveryRepository:
         except DBAPIError as exc:
             _translate_database_error(exc, "expire_claim")
         expiration = _json_mapping(expiration_raw)
-        if str(expiration["status"]) not in {
-            "active_lease",
-            "expired_to_unknown",
-            "not_processing",
-        }:
-            raise ConcurrencyError("database returned an unsupported expiration status")
+        try:
+            return ClaimReconciliation(str(expiration["status"]))
+        except (KeyError, ValueError) as exc:
+            raise DependencyUnavailableError(
+                "database returned an unsupported expiration status"
+            ) from exc
+
+    async def claim_manual(
+        self,
+        delivery_id: UUID,
+        *,
+        reviewer: AuthenticatedReviewer,
+        duplicate_risk_confirmed: bool,
+    ) -> DeliveryClaim:
         try:
             claim_result = await self._claim(
                 delivery_id,
@@ -493,10 +501,15 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
     ) -> None:
         if self._session is None:
             return
-        if exc is not None or not self._committed:
-            await self._session.rollback()
-        await self._session.close()
-        self._session = None
+        database_failure = isinstance(exc, SQLAlchemyError)
+        try:
+            if exc is not None or not self._committed:
+                await self._session.rollback()
+            await self._session.close()
+        finally:
+            self._session = None
+        if database_failure:
+            raise DependencyUnavailableError("database operation failed") from exc
 
     async def commit(self) -> None:
         await self._require_session().commit()
@@ -506,7 +519,65 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         await self._require_session().rollback()
 
     async def check_connection(self) -> None:
-        await self._require_session().execute(text("SELECT 1"))
+        result = await self._require_session().execute(
+            text(
+                """
+                select
+                    current_user as runtime_role,
+                    to_regclass('public.leads') is not null as has_leads,
+                    to_regclass('public.email_deliveries') is not null as has_deliveries,
+                    to_regclass('public.email_delivery_attempts') is not null as has_attempts,
+                    has_table_privilege(current_user, 'public.leads', 'SELECT')
+                        as can_read_leads,
+                    has_table_privilege(current_user, 'public.email_deliveries', 'SELECT')
+                        as can_read_deliveries,
+                    has_table_privilege(
+                        current_user, 'public.email_delivery_attempts', 'SELECT'
+                    ) as can_read_attempts,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure('public.reserve_new_lead_email_budget(uuid)'),
+                        'EXECUTE'
+                    ), false) as can_reserve_lead_budget,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure(
+                            'public.create_lead_with_deliveries(uuid,text,text,text,text,text,text,bigint,text,text)'
+                        ),
+                        'EXECUTE'
+                    ), false) as can_create_lead,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure('public.mark_lead_reached_out(uuid,uuid,text)'),
+                        'EXECUTE'
+                    ), false) as can_transition_lead,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure(
+                            'public.claim_email_delivery(uuid,uuid,text,uuid,text,boolean)'
+                        ),
+                        'EXECUTE'
+                    ), false) as can_claim_delivery,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure('public.expire_email_delivery_claim(uuid)'),
+                        'EXECUTE'
+                    ), false) as can_expire_claim,
+                    coalesce(has_function_privilege(
+                        current_user,
+                        to_regprocedure(
+                            'public.complete_email_delivery_attempt(uuid,uuid,text,integer,text,text)'
+                        ),
+                        'EXECUTE'
+                    ), false) as can_complete_delivery
+                """
+            )
+        )
+        readiness = result.mappings().one()
+        if readiness["runtime_role"] != "alma_api" or not all(
+            value is True for key, value in readiness.items() if key != "runtime_role"
+        ):
+            raise DependencyUnavailableError("database schema, role, or grants are not ready")
 
     def _require_session(self) -> AsyncSession:
         if self._session is None:
@@ -519,7 +590,15 @@ def create_engine(url: str) -> AsyncEngine:
         url,
         pool_pre_ping=True,
         pool_recycle=300,
-        connect_args={"connect_timeout": 5},
+        pool_timeout=3,
+        connect_args={
+            "connect_timeout": 3,
+            "options": (
+                "-c statement_timeout=3000 "
+                "-c lock_timeout=1000 "
+                "-c idle_in_transaction_session_timeout=5000"
+            ),
+        },
     )
 
 
@@ -693,7 +772,7 @@ def _claim_from_function(result: Mapping[str, Any], delivery: Delivery) -> Deliv
 def _json_mapping(raw: object) -> Mapping[str, Any]:
     value = json.loads(raw) if isinstance(raw, str) else raw
     if not isinstance(value, Mapping):
-        raise RuntimeError("database function returned an invalid JSON object")
+        raise DependencyUnavailableError("database function returned an invalid result")
     return cast(Mapping[str, Any], value)
 
 
@@ -722,7 +801,7 @@ def _translate_database_error(exc: DBAPIError, operation: str) -> NoReturn:
         raise DomainError("invalid_status_transition", "status transition is not allowed") from exc
     if sqlstate in {"22004", "22023"}:
         raise ApplicationError(f"{operation} arguments were rejected") from exc
-    raise ApplicationError(f"{operation} failed") from exc
+    raise DependencyUnavailableError(f"{operation} failed") from exc
 
 
 def _sqlstate(exc: DBAPIError) -> str | None:

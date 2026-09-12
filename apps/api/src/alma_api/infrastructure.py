@@ -8,7 +8,7 @@ import binascii
 import hmac
 import json
 import time
-from collections import defaultdict, deque
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
@@ -18,6 +18,7 @@ import httpx
 
 from alma_api.application import (
     ApplicationError,
+    DependencyUnavailableError,
     DownloadGrant,
     StoredObject,
 )
@@ -131,30 +132,42 @@ class SupabaseStorage:
         return f"{self._base_url}/storage/v1/object/{encoded_bucket}/{encoded_key}"
 
     async def upload(self, key: str, content: bytes, media_type: str) -> None:
-        response = await self._client.put(
-            self._object_url(key),
-            content=content,
-            headers={
-                **self._headers,
-                "Content-Type": media_type,
-                "x-upsert": "false",
-            },
-        )
-        response.raise_for_status()
+        try:
+            response = await self._client.put(
+                self._object_url(key),
+                content=content,
+                headers={
+                    **self._headers,
+                    "Content-Type": media_type,
+                    "x-upsert": "false",
+                },
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DependencyUnavailableError("resume storage upload failed") from exc
 
     async def delete(self, key: str) -> None:
-        response = await self._client.delete(self._object_url(key), headers=self._headers)
-        if response.status_code != 404:
-            response.raise_for_status()
+        try:
+            response = await self._client.delete(self._object_url(key), headers=self._headers)
+            if response.status_code != 404:
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise DependencyUnavailableError("resume storage delete failed") from exc
 
     async def open(self, key: str) -> StoredObject:
-        request = self._client.build_request("GET", self._object_url(key), headers=self._headers)
-        response = await self._client.send(request, stream=True)
+        response: httpx.Response | None = None
         try:
+            request = self._client.build_request(
+                "GET", self._object_url(key), headers=self._headers
+            )
+            response = await self._client.send(request, stream=True)
             response.raise_for_status()
-        except Exception:
-            await response.aclose()
-            raise
+        except httpx.HTTPError as exc:
+            if response is not None:
+                await response.aclose()
+            raise DependencyUnavailableError("resume storage download failed") from exc
+        if response is None:
+            raise DependencyUnavailableError("resume storage download failed")
         size_header = response.headers.get("content-length")
         size = int(size_header) if size_header and size_header.isdigit() else None
         media_type = response.headers.get("content-type", "application/octet-stream")
@@ -174,20 +187,28 @@ class SupabaseStorage:
         encoded_bucket = quote(self._bucket, safe="")
         url = f"{self._base_url}/storage/v1/object/list/{encoded_bucket}"
         while True:
-            response = await self._client.post(
-                url,
-                headers={**self._headers, "Content-Type": "application/json"},
-                json={
-                    "prefix": prefix,
-                    "limit": page_size,
-                    "offset": offset,
-                    "sortBy": {"column": "name", "order": "asc"},
-                },
-            )
-            response.raise_for_status()
-            rows = response.json()
+            try:
+                response = await self._client.post(
+                    url,
+                    headers={**self._headers, "Content-Type": "application/json"},
+                    json={
+                        "prefix": prefix,
+                        "limit": page_size,
+                        "offset": offset,
+                        "sortBy": {"column": "name", "order": "asc"},
+                    },
+                )
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise DependencyUnavailableError("resume storage listing failed") from exc
+            try:
+                rows = response.json()
+            except ValueError as exc:
+                raise DependencyUnavailableError(
+                    "resume storage returned an invalid listing"
+                ) from exc
             if not isinstance(rows, list):
-                raise RuntimeError("unexpected storage listing response")
+                raise DependencyUnavailableError("resume storage returned an invalid listing")
             for row in rows:
                 name = row.get("name") if isinstance(row, dict) else None
                 if isinstance(name, str):
@@ -272,19 +293,35 @@ class InMemoryRateLimiter:
         *,
         limit: int,
         window_seconds: int,
+        max_keys: int = 10_000,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._limit = limit
         self._window = window_seconds
+        self._max_keys = max_keys
         self._monotonic = monotonic
-        self._entries: dict[str, deque[float]] = defaultdict(deque)
+        self._entries: dict[str, deque[float]] = {}
         self._lock = asyncio.Lock()
+        if limit <= 0 or window_seconds <= 0 or max_keys <= 0:
+            raise ValueError("rate limiter bounds must be positive")
 
     async def consume(self, key: str) -> None:
         async with self._lock:
             now = self._monotonic()
-            entries = self._entries[key]
             cutoff = now - self._window
+            inactive = [
+                existing_key
+                for existing_key, timestamps in self._entries.items()
+                if not timestamps or timestamps[-1] <= cutoff
+            ]
+            for existing_key in inactive:
+                del self._entries[existing_key]
+            entries = self._entries.get(key)
+            if entries is None:
+                if len(self._entries) >= self._max_keys:
+                    raise RateLimitExceeded(self._window)
+                entries = deque()
+                self._entries[key] = entries
             while entries and entries[0] <= cutoff:
                 entries.popleft()
             if len(entries) >= self._limit:

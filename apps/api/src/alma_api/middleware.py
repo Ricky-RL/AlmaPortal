@@ -27,6 +27,10 @@ class RequestBodyTooLarge(Exception):
     pass
 
 
+class InvalidClientAddress(Exception):
+    pass
+
+
 class BodyCapMiddleware:
     def __init__(self, app: AsgiApp, max_bytes: int) -> None:
         self._app = app
@@ -82,9 +86,17 @@ class BodyCapMiddleware:
 
 
 class ClientIpResolver:
-    def __init__(self, trusted_proxy_cidrs: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        trusted_proxy_cidrs: tuple[str, ...],
+        *,
+        client_ip_header: str | None = None,
+    ) -> None:
         self._trusted = tuple(
             ipaddress.ip_network(cidr, strict=False) for cidr in trusted_proxy_cidrs
+        )
+        self._client_ip_header = (
+            client_ip_header.lower().encode() if client_ip_header is not None else None
         )
 
     def resolve(self, scope: dict[str, Any]) -> str:
@@ -93,22 +105,17 @@ class ClientIpResolver:
             peer = ipaddress.ip_address(peer_text)
         except ValueError:
             return "unknown"
-        if not self._is_trusted(peer):
+        if not self._is_trusted(peer) or self._client_ip_header is None:
             return peer.compressed
-        forwarded = _single_header(scope, b"x-forwarded-for")
-        if forwarded is None:
+        values = _header_values(scope, self._client_ip_header)
+        if not values:
             return peer.compressed
-        values = [item.strip() for item in forwarded.split(",")]
-        if not values or len(values) > 20:
-            return peer.compressed
+        if len(values) != 1 or "," in values[0]:
+            raise InvalidClientAddress("trusted client IP header is malformed")
         try:
-            chain = [ipaddress.ip_address(item) for item in values]
-        except ValueError:
-            return peer.compressed
-        for candidate in reversed(chain):
-            if not self._is_trusted(candidate):
-                return candidate.compressed
-        return chain[0].compressed
+            return ipaddress.ip_address(values[0].strip()).compressed
+        except ValueError as exc:
+            raise InvalidClientAddress("trusted client IP header is malformed") from exc
 
     def _is_trusted(self, address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         return any(address in network for network in self._trusted)
@@ -134,6 +141,14 @@ class PublicSubmissionRateLimitMiddleware:
         ):
             try:
                 await self._limiter.consume(self._resolver.resolve(scope))
+            except InvalidClientAddress:
+                await _send_problem(
+                    send,
+                    400,
+                    "invalid_client_address",
+                    "trusted client IP header is malformed",
+                )
+                return
             except RateLimitExceeded as exc:
                 await _send_problem(
                     send,
@@ -187,11 +202,16 @@ class RequestContextMiddleware:
 
 
 def _single_header(scope: dict[str, Any], name: bytes) -> str | None:
-    values = [value for key, value in scope.get("headers", []) if key.lower() == name]
+    values = _header_values(scope, name)
     if len(values) != 1:
         return None
-    value: bytes = values[0]
-    return value.decode("latin-1")
+    return values[0]
+
+
+def _header_values(scope: dict[str, Any], name: bytes) -> list[str]:
+    return [
+        value.decode("latin-1") for key, value in scope.get("headers", []) if key.lower() == name
+    ]
 
 
 async def _send_problem(

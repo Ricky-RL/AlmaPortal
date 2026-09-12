@@ -7,10 +7,12 @@ import binascii
 import json
 import logging
 import re
+import time
 import unicodedata
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from types import TracebackType
 from typing import Protocol, Self
 from uuid import UUID, uuid4
@@ -21,6 +23,8 @@ from alma_api.domain import (
     DeliveryAttempt,
     DeliveryClaim,
     DeliveryKind,
+    DeliveryState,
+    DomainError,
     Lead,
     LeadStatus,
     LeadSummary,
@@ -55,6 +59,16 @@ class BudgetExceededError(ApplicationError):
 
 class InvalidCursorError(ApplicationError):
     code = "invalid_cursor"
+
+
+class DependencyUnavailableError(ApplicationError):
+    code = "dependency_unavailable"
+
+
+class ClaimReconciliation(StrEnum):
+    NOT_PROCESSING = "not_processing"
+    ACTIVE_LEASE = "active_lease"
+    EXPIRED_TO_UNKNOWN = "expired_to_unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,11 +194,15 @@ class LeadRepository(Protocol):
 
 
 class DeliveryRepository(Protocol):
+    async def get(self, delivery_id: UUID) -> Delivery | None: ...
+
     async def list_for_lead(self, lead_id: UUID) -> tuple[Delivery, ...]: ...
 
     async def list_attempts_for_lead(self, lead_id: UUID) -> tuple[DeliveryAttempt, ...]: ...
 
     async def claim_initial(self, delivery_id: UUID) -> DeliveryClaim | None: ...
+
+    async def reconcile_claim(self, delivery_id: UUID) -> ClaimReconciliation: ...
 
     async def claim_manual(
         self,
@@ -335,14 +353,33 @@ class DeliveryService:
             lead = await uow.leads.get(lead_id)
             if lead is None:
                 raise NotFoundError("lead was not found")
-            claim = await uow.deliveries.claim_manual(
-                delivery_id,
-                reviewer=reviewer,
-                duplicate_risk_confirmed=duplicate_risk_confirmed,
-            )
+            delivery = await uow.deliveries.get(delivery_id)
+            if delivery is None or delivery.lead_id != lead_id:
+                raise NotFoundError("delivery was not found for this lead")
+            reconciliation = await uow.deliveries.reconcile_claim(delivery_id)
+            await uow.commit()
+
+        if reconciliation is ClaimReconciliation.ACTIVE_LEASE:
+            raise DomainError("delivery_in_progress", "a delivery attempt is already in progress")
+
+        async with self._uow_factory() as uow:
+            delivery = await uow.deliveries.get(delivery_id)
+            if delivery is None or delivery.lead_id != lead_id:
+                raise NotFoundError("delivery was not found for this lead")
+            if delivery.state is DeliveryState.PENDING:
+                claim = await uow.deliveries.claim_initial(delivery_id)
+                if claim is None:
+                    raise ConcurrencyError("initial delivery claim is no longer available")
+            else:
+                claim = await uow.deliveries.claim_manual(
+                    delivery_id,
+                    reviewer=reviewer,
+                    duplicate_risk_confirmed=duplicate_risk_confirmed,
+                )
             if claim.lead_id != lead_id:
                 raise NotFoundError("delivery was not found for this lead")
             await uow.commit()
+
         await self._send_claim(lead, claim)
         async with self._uow_factory() as uow:
             deliveries = await uow.deliveries.list_for_lead(lead_id)
@@ -352,6 +389,7 @@ class DeliveryService:
             raise NotFoundError("delivery was not found after retry") from exc
 
     async def _send_claim(self, lead: Lead, claim: DeliveryClaim) -> None:
+        started = time.monotonic()
         composed = self._composer.compose(claim.kind, lead)
         message = MailMessage(
             recipient=claim.recipient_email,
@@ -361,8 +399,19 @@ class DeliveryService:
         )
         result = await self._mailer.send(message)
         async with self._uow_factory() as uow:
-            await uow.deliveries.complete(claim, result)
+            completion_applied = await uow.deliveries.complete(claim, result)
             await uow.commit()
+        logger.info(
+            "delivery_attempt_completed",
+            extra={
+                "attempt_id": str(claim.attempt_id),
+                "delivery_kind": claim.kind.value,
+                "outcome": result.state.value,
+                "provider_status": result.http_status,
+                "completion_applied": completion_applied,
+                "duration_ms": round((time.monotonic() - started) * 1000, 2),
+            },
+        )
 
 
 class SubmitLead:
@@ -404,10 +453,12 @@ class SubmitLead:
         try:
             async with self._uow_factory() as uow:
                 await uow.budgets.reserve_new_lead(lead_id)
-                await self._storage.upload(
-                    object_path, command.resume.content, command.resume.media_type
-                )
-                uploaded = True
+                await uow.commit()
+            await self._storage.upload(
+                object_path, command.resume.content, command.resume.media_type
+            )
+            uploaded = True
+            async with self._uow_factory() as uow:
                 created = await uow.leads.create_with_deliveries(
                     submitted,
                     prospect_recipient=submitted.email,
@@ -419,7 +470,7 @@ class SubmitLead:
                 try:
                     await self._storage.delete(object_path)
                 except Exception as compensation_error:
-                    logger.error(
+                    logger.exception(
                         "resume_storage_compensation_failed",
                         extra={
                             "lead_id": str(lead_id),
@@ -434,7 +485,7 @@ class SubmitLead:
             try:
                 await self._delivery_service.send_initial(created, delivery.id)
             except Exception as delivery_error:
-                logger.error(
+                logger.exception(
                     "initial_delivery_attempt_failed",
                     extra={
                         "lead_id": str(created.id),

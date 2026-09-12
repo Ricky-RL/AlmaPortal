@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,7 @@ from alma_api.application import (
     ConcurrencyError,
     CreateResumeDownloadTicket,
     DeliveryService,
+    DependencyUnavailableError,
     DownloadResume,
     GetLead,
     GetLeadSummary,
@@ -449,9 +451,11 @@ def create_router() -> APIRouter:
     @router.get("/health/ready")
     async def ready(container: Annotated[Services, Depends(services)]) -> JSONResponse:
         try:
-            async with container.uow_factory() as uow:
-                await uow.check_connection()
+            async with asyncio.timeout(4):
+                async with container.uow_factory() as uow:
+                    await uow.check_connection()
         except Exception:
+            logger.exception("database_readiness_failed")
             return problem_response(
                 503,
                 "database_unavailable",
@@ -479,6 +483,10 @@ def install_exception_handlers(app: FastAPI) -> None:
             str(exc),
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    @app.exception_handler(DependencyUnavailableError)
+    async def dependency_error(_: Request, exc: DependencyUnavailableError) -> JSONResponse:
+        return problem_response(503, exc.code, str(exc))
 
     @app.exception_handler(NotFoundError)
     async def not_found(_: Request, exc: NotFoundError) -> JSONResponse:
@@ -546,7 +554,7 @@ def install_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        logger.error(
+        logger.exception(
             "unhandled_request_error",
             extra={
                 "request_id": getattr(request.state, "request_id", None),

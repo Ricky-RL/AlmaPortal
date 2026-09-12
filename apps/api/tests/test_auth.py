@@ -9,6 +9,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from alma_api.application import DependencyUnavailableError
 from alma_api.auth import AuthenticationError, JwtVerificationMode, SupabaseJwtVerifier
 
 ISSUER = "https://project.supabase.co/auth/v1"
@@ -58,6 +59,43 @@ async def test_valid_google_token_uses_signed_app_metadata_not_user_metadata() -
         )
         current = await verifier.verify(encoded(private, "key-1", claims()))
     assert current.email.value == "reviewer@example.com"
+
+
+@pytest.mark.asyncio
+async def test_valid_token_does_not_require_nbf() -> None:
+    private, jwk = key_pair("key-1")
+    token_claims = claims()
+    del token_claims["nbf"]
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"keys": [jwk]}))
+    async with httpx.AsyncClient(transport=transport) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=ISSUER,
+            jwks_url=f"{ISSUER}/.well-known/jwks.json",
+            algorithms=("RS256",),
+            client=client,
+        )
+        current = await verifier.verify(encoded(private, "key-1", token_claims))
+    assert current.email.value == "reviewer@example.com"
+
+
+@pytest.mark.asyncio
+async def test_present_future_nbf_is_rejected() -> None:
+    private, jwk = key_pair("key-1")
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"keys": [jwk]}))
+    async with httpx.AsyncClient(transport=transport) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=ISSUER,
+            jwks_url=f"{ISSUER}/.well-known/jwks.json",
+            algorithms=("RS256",),
+            client=client,
+        )
+        token = encoded(
+            private,
+            "key-1",
+            claims(nbf=datetime.now(UTC) + timedelta(minutes=1)),
+        )
+        with pytest.raises(AuthenticationError):
+            await verifier.verify(token)
 
 
 @pytest.mark.asyncio
@@ -190,3 +228,83 @@ async def test_local_hs256_keeps_google_provider_claim_checks() -> None:
         )
         with pytest.raises(AuthenticationError):
             await verifier.verify(token)
+
+
+@pytest.mark.asyncio
+async def test_jwks_failure_uses_known_key_only_within_stale_window() -> None:
+    private, jwk = key_pair("key-1")
+    current = 0.0
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                json={"keys": [jwk]},
+                headers={"cache-control": "max-age=30"},
+            )
+        raise httpx.ConnectError("JWKS unavailable", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=ISSUER,
+            jwks_url=f"{ISSUER}/.well-known/jwks.json",
+            algorithms=("RS256",),
+            client=client,
+            stale_ttl_seconds=60,
+            monotonic=lambda: current,
+        )
+        token = encoded(private, "key-1", claims())
+        await verifier.verify(token)
+        current = 31.0
+        await verifier.verify(token)
+        current = 91.0
+        with pytest.raises(DependencyUnavailableError):
+            await verifier.verify(token)
+
+
+@pytest.mark.asyncio
+async def test_initial_jwks_failure_is_dependency_unavailable() -> None:
+    private, _ = key_pair("key-1")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("JWKS unavailable", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=ISSUER,
+            jwks_url=f"{ISSUER}/.well-known/jwks.json",
+            algorithms=("RS256",),
+            client=client,
+        )
+        with pytest.raises(DependencyUnavailableError):
+            await verifier.verify(encoded(private, "key-1", claims()))
+
+
+@pytest.mark.asyncio
+async def test_unknown_kid_negative_cache_bounds_forced_refreshes() -> None:
+    private, jwk = key_pair("known")
+    unknown_private, _ = key_pair("unknown")
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"keys": [jwk]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        verifier = SupabaseJwtVerifier(
+            issuer=ISSUER,
+            jwks_url=f"{ISSUER}/.well-known/jwks.json",
+            algorithms=("RS256",),
+            client=client,
+        )
+        await verifier.verify(encoded(private, "known", claims()))
+        unknown_token = encoded(unknown_private, "unknown", claims())
+        with pytest.raises(AuthenticationError):
+            await verifier.verify(unknown_token)
+        with pytest.raises(AuthenticationError):
+            await verifier.verify(unknown_token)
+    assert calls == 2
