@@ -21,9 +21,10 @@ export class UploadError extends Error {
 }
 
 export function publicLeadEndpoint(raw = process.env.NEXT_PUBLIC_API_URL) {
-  if (!raw) throw new Error("Lead submission is not configured.");
+  const configured = raw || localApiOrigin();
+  if (!configured) throw new Error("Lead submission is not configured.");
 
-  const url = new URL(raw);
+  const url = new URL(configured);
   const localHttp =
     url.protocol === "http:" &&
     (url.hostname === "localhost" || url.hostname === "127.0.0.1");
@@ -36,6 +37,17 @@ export function publicLeadEndpoint(raw = process.env.NEXT_PUBLIC_API_URL) {
 
   const basePath = url.pathname.replace(/\/+$/, "");
   return `${url.origin}${basePath}/api/v1/leads`;
+}
+
+function localApiOrigin() {
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "localhost")
+  ) {
+    return "http://127.0.0.1:8000";
+  }
+  return undefined;
 }
 
 export function uploadErrorMessage(status: number, code?: string) {
