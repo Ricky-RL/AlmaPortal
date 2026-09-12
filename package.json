@@ -1,0 +1,21 @@
+{
+  "name": "almaportal",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "engines": {
+    "node": ">=22.14.0 <23",
+    "pnpm": "10.15.1"
+  },
+  "scripts": {
+    "dev:web": "pnpm --dir apps/web dev",
+    "lint": "pnpm --recursive --if-present run lint",
+    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "unit": "pnpm run test:web",
+    "test:web": "pnpm --dir apps/web test",
+    "test:e2e": "pnpm --dir tests/e2e test",
+    "test": "pnpm run unit",
+    "test:all": "pnpm run unit && pnpm run test:e2e",
+    "build": "pnpm --recursive --if-present run build"
+  }
+}

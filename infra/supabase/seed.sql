@@ -1,0 +1,6 @@
+-- Intentionally empty.
+--
+-- Lead rows refer to private Storage objects. Seeding metadata without its
+-- matching object creates an invalid demo, while storing a real or synthetic
+-- résumé in source control is unnecessary. Policy tests create synthetic
+-- metadata inside a transaction and roll it back.

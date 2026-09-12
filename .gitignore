@@ -1,0 +1,41 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# JavaScript and TypeScript
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+dist/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Supabase local state
+infra/supabase/.branches/
+infra/supabase/.temp/
+
+# Tool and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.log
+tmp/
